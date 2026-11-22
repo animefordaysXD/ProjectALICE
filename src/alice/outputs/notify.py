@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from ..contracts.outputs import Notifier
 from .config import Notify
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TOAST_TIMEOUT = 5.0
 
 
 class NullNotifier:
@@ -16,7 +19,15 @@ class NullNotifier:
 
 
 class WindowsToastNotifier:
-    """Lazy wrapper around `win11toast`; import cost is paid on first toast."""
+    """Lazy wrapper around `win11toast`; import cost is paid on first toast.
+
+    `win11toast.toast` can block waiting for the Windows notification service.
+    A hung toast must not stop the ingestion/triage loop, so delivery runs in a
+    daemon thread with a timeout. A timed-out suggestion stays queued.
+    """
+
+    def __init__(self, timeout: float = DEFAULT_TOAST_TIMEOUT) -> None:
+        self.timeout = timeout
 
     def notify(self, title: str, body: str) -> bool:
         try:
@@ -24,12 +35,26 @@ class WindowsToastNotifier:
         except ImportError:
             logger.warning("win11toast is not installed; toast delivery unavailable")
             return False
-        try:
-            toast(title, body)
-            return True
-        except Exception as exc:
-            logger.warning("toast delivery failed: %s", type(exc).__name__)
+
+        result = {"ok": False}
+
+        def send() -> None:
+            try:
+                toast(title, body)
+                result["ok"] = True
+            except Exception as exc:
+                logger.warning("toast delivery failed: %s", type(exc).__name__)
+
+        thread = threading.Thread(target=send, name="alice-toast", daemon=True)
+        thread.start()
+        thread.join(self.timeout)
+        if thread.is_alive():
+            logger.warning(
+                "toast delivery timed out after %.1fs; suggestion stays queued",
+                self.timeout,
+            )
             return False
+        return bool(result["ok"])
 
 
 def build_notifier(config: Notify, *, dry_run: bool = False) -> Notifier:

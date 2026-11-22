@@ -97,6 +97,7 @@ def test_run_once_initializes_the_ledger(tmp_path: Path) -> None:
         assert cursors == 3
     finally:
         conn.close()
+    assert (root / "state" / "run.heartbeat").is_file()
 
 
 def test_second_run_and_restart_produce_no_duplicates(tmp_path: Path) -> None:

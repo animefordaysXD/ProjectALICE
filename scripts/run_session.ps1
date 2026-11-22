@@ -8,6 +8,7 @@ param(
     [string]$DataDir = "",
     [string]$OutRoot = "",
     [int]$MaxRestarts = 10,
+    [int]$HeartbeatMinutes = 10,
     [switch]$DryRun
 )
 
@@ -80,17 +81,35 @@ while ((Get-Date) -lt $end -and $runIndex -lt $MaxRestarts) {
         "run"
     )
     if ($DryRun) { $arguments += "--dry-run" }
+    $heartbeat = Join-Path $DataDir "run.heartbeat"
+    Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
     $process = Start-Process -FilePath $Alice -ArgumentList $arguments `
         -WorkingDirectory $aliceDir -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $outPath -RedirectStandardError $errPath
     Write-Supervisor "run $runIndex started (pid $($process.Id))"
 
+    $hung = $false
     while (-not $process.HasExited -and (Get-Date) -lt $end) {
         Start-Sleep -Seconds 15
+        if (-not $process.HasExited -and (Test-Path $heartbeat)) {
+            $age = (Get-Date) - (Get-Item $heartbeat).LastWriteTime
+            if ($age.TotalMinutes -gt $HeartbeatMinutes) {
+                Write-Supervisor (
+                    "run $runIndex heartbeat stale for " +
+                    "$([math]::Round($age.TotalMinutes, 1)) min; killing"
+                )
+                & taskkill.exe /PID $process.Id /T /F *> $null
+                Start-Sleep -Seconds 2
+                $hung = $true
+                break
+            }
+        }
     }
 
     $process.Refresh()
-    if ($process.HasExited) {
+    if ($hung) {
+        $reason = "heartbeat timeout"
+    } elseif ($process.HasExited) {
         $reason = "exited with code $($process.ExitCode)"
     } else {
         & taskkill.exe /PID $process.Id /T /F *> $null
@@ -125,6 +144,7 @@ $sessionData = [pscustomobject]@{
     started = $started.ToString("o")
     ended = $ended.ToString("o")
     hours = $Hours
+    heartbeat_minutes = $HeartbeatMinutes
     stop_reason = $stopReason
     alice = $Alice
     config = $Config

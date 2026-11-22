@@ -757,6 +757,34 @@ mean the scan is caught up. Cursors advance per file, so a second run resumes
 where the first stopped. The command's `from_start` override is not persisted;
 future files still start at the end unless the config says otherwise.
 
+## 2026-11-22 — session hang at the first toast
+
+The first 6-hour supervised run stopped making progress at 17:25 after one
+reasoning call. The process stayed alive, so the supervisor did not restart it;
+the log jumped from the reasoning line to the backup six hours later. The last
+work before the gap was `queue.deliver`, which called `win11toast.toast` for
+three queued suggestions. The Windows notification call blocked indefinitely,
+freezing the single-threaded run loop.
+
+Two defenses were added:
+
+1. Toast delivery now runs in a daemon thread with a five-second timeout. A
+   timed-out suggestion stays `queued` and is retried later; it cannot block
+   ingestion or triage.
+2. `alice run` writes `run.heartbeat` at the start and end of every loop. The
+   session supervisor kills and restarts Alice when the heartbeat is older than
+   `HeartbeatMinutes` (default 10), and records `heartbeat timeout` in
+   `session.json` and the handover.
+
+The five-second timeout is deliberately short: notifications are best-effort.
+The digest remains the durable delivery channel, and the suggestion is not
+marked shown when the toast does not return.
+
+This bug was found by the session handover itself: 24 events, six triage
+batches, and three suggestions were recorded, then the run went silent while
+the process remained alive. Future handovers show restarts and their reasons
+in the process-runs table.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

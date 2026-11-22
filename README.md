@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 323 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 326 tests pass.
 
 ---
 
@@ -785,7 +785,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-323 tests cover:
+326 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -795,6 +795,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - one-time backfill: `from_start` override, chunked reads, resumable cursors,
   quiet-stop, and zero model calls;
 - timed-session handover report: usage, triage, suggestions, logs, integrity;
+- toast timeout and run heartbeat watchdog, so a blocked notification cannot
+  freeze the loop for a whole session;
 - a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
 - dedupe, collapse counts, salience, raw payload policy;
@@ -904,7 +906,9 @@ milestone in the original spec.
 - `memory/seed/*.md` remain as templates; the active core memory is
   `memory/core.json`.
 - Toast delivery depends on `win11toast` and Windows notifications being
-  enabled. Failures leave suggestions queued for the digest.
+  enabled. Delivery runs with a 5-second timeout; failures leave suggestions
+  queued for the digest. The supervisor also restarts Alice if its run
+  heartbeat goes stale for 10 minutes.
 - The digest is regenerated on each poll; the summary toast is sent only on the
   first write of the local day, and not during quiet hours.
 - The heavy tier is capped per day and only used when reasoning sets

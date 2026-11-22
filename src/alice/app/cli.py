@@ -11,7 +11,7 @@ import logging
 import sqlite3
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import click
@@ -866,6 +866,8 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     last_consolidation = 0.0
     last_backup = 0.0
     triage_interval = max(1.0, config.brain.triage.interval_minutes * 60)
+    heartbeat = config.data_dir / "run.heartbeat"
+    _write_heartbeat(heartbeat)
     try:
         for sensor in sensors:
             sensor.start()
@@ -958,6 +960,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
             if once:
                 _print_digest(digest_result)
 
+            _write_heartbeat(heartbeat)
             if once:
                 break
             time.sleep(interval)
@@ -1068,6 +1071,17 @@ def _print_restore(result: RestoreResult) -> None:
     if result.day:
         detail += f" from {result.day}"
     click.echo(_line("restore", detail))
+
+
+def _write_heartbeat(path: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.warning("could not write heartbeat: %s", path)
 
 
 _STAT_FIELDS = (
