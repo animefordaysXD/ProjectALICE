@@ -742,6 +742,21 @@ inspect the file list first.
 narrowing `path` or `globs` is the right response if unrelated text fills the
 ledger.
 
+### Backfill without model calls
+
+`alice backfill` overrides `from_start` for one invocation and reads existing
+files in bounded chunks. It deliberately does not build the router or run
+triage: the budget remains untouched, and every event lands as `new`. A normal
+`alice run` then triages those events gradually under the existing caps. This
+separates "catch the ledger up" from "spend money on model calls", which is the
+only safe way to backfill a drive-wide scan.
+
+`--lines` controls the per-poll read budget (2,000 default), `--max-lines`
+stops after 50,000 observed lines (0 disables), and two consecutive quiet polls
+mean the scan is caught up. Cursors advance per file, so a second run resumes
+where the first stopped. The command's `from_start` override is not persisted;
+future files still start at the end unless the config says otherwise.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

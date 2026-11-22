@@ -65,7 +65,13 @@ class Ingestion:
     gate: Gate
 
 
-def build_ingestion(settings: AppSettings, conn: sqlite3.Connection) -> Ingestion:
+def build_ingestion(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    *,
+    from_start: bool | None = None,
+    max_lines: int | None = None,
+) -> Ingestion:
     """Sensor fan-out plus the gate that writes the core ledger."""
     cursors = CursorStore(conn)
     excluded = [settings.data_dir, settings.log_dir]
@@ -79,6 +85,8 @@ def build_ingestion(settings: AppSettings, conn: sqlite3.Connection) -> Ingestio
             root=settings.root,
             cursors=cursors,
             exclude_paths=tuple(excluded),
+            from_start=from_start,
+            max_lines=max_lines,
         ),
         gate=Gate(
             conn,

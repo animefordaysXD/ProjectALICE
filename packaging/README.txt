@@ -62,6 +62,7 @@ Commands
 --------
   alice.exe status                 show schema, sources, counts, memory, spend
   alice.exe discover --limit 20    preview the C:\ log files a scan would track
+  alice.exe backfill --lines 2000  read existing logs into the ledger; no model calls
   alice.exe run --once             poll sources once, index memory, triage, exit
   alice.exe run --dry-run          same, using the fake model and no spend
   alice.exe approve                list pending memory proposals
@@ -101,4 +102,7 @@ Notes
 - The first whole-drive scan takes roughly 30-80 seconds and is cached for 30
   minutes. `max_files`, `recent_days`, and `text_only` keep it bounded. Narrow
   `path` or `globs` if unrelated .txt files are too noisy.
+- Existing log lines are not replayed by `run`. Use `backfill` for a bounded
+  one-time read; it never calls a model. Run it again to continue if it reports
+  the 50,000-line budget was reached.
 - Backups are local only. Alice never uploads the database, memory, or reports.

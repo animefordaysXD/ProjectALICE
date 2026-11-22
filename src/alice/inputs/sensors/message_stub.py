@@ -28,12 +28,28 @@ class _LineState:
 
 
 class StubMessageSensor(Sensor):
-    def __init__(self, source: Source, *, root: Path, cursors: CursorStore) -> None:
+    def __init__(
+        self,
+        source: Source,
+        *,
+        root: Path,
+        cursors: CursorStore,
+        from_start_override: bool | None = None,
+        max_lines_override: int | None = None,
+    ) -> None:
         options = dict(source.options)
         self.path = resolve_path(str(options["path"]), root)
         self.encoding = str(options.get("encoding", "utf-8"))
-        self.from_start = bool(options.get("from_start", True))
-        self.max_lines = int(options.get("max_lines", DEFAULT_MAX_LINES))
+        self.from_start = (
+            bool(from_start_override)
+            if from_start_override is not None
+            else bool(options.get("from_start", True))
+        )
+        self.max_lines = (
+            int(max_lines_override)
+            if max_lines_override is not None
+            else int(options.get("max_lines", DEFAULT_MAX_LINES))
+        )
         self.cursors = cursors
         self._pending: dict[str, _LineState] = {}
 

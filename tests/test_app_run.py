@@ -336,6 +336,73 @@ gate:
     assert texts == ["first failure", "second failure"]
 
 
+def test_backfill_reads_existing_logs_without_model_calls(tmp_path: Path) -> None:
+    root = tmp_path / "alice"
+    root.mkdir()
+    logs = tmp_path / "outside" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "app.log").write_text(
+        "first failure\nsecond failure\nthird failure\n", encoding="utf-8"
+    )
+    config_dir = root / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "alice.yaml"
+    config_path.write_text(
+        f"""\
+models:
+  triage:      {{provider: fake, model: fake-triage}}
+  reason:      {{provider: fake, model: fake-reason}}
+  consolidate: {{provider: fake, model: fake-consolidate}}
+sources:
+  - type: logscan
+    path: '{logs.as_posix()}'
+    globs: ['*.log']
+    from_start: false
+    recent_days: 0
+gate:
+  min_salience: 0.5
+""",
+        encoding="utf-8",
+    )
+
+    assert invoke(config_path, "init").exit_code == 0
+    result = invoke(
+        config_path,
+        "backfill",
+        "--lines",
+        "1",
+        "--max-lines",
+        "0",
+        "--sleep",
+        "0",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "3 observed" in result.output
+    assert "3 inserted" in result.output
+    assert "no model calls" in result.output
+
+    db = root / "state" / "alice.db"
+    conn = connect(db, create=False)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM cursors").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+    again = invoke(
+        config_path, "backfill", "--lines", "1", "--max-lines", "0", "--sleep", "0"
+    )
+    assert again.exit_code == 0, again.output
+    assert "caught up" in again.output
+    conn = connect(db, create=False)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 3
+    finally:
+        conn.close()
+
+
 def test_poll_once_counts_duplicates(tmp_path: Path) -> None:
     """The Korean fixture repeats one line; the ledger must drop it."""
     root = tmp_path / "alice"

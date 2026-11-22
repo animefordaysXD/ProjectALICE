@@ -234,8 +234,16 @@ class LogScanSensor(LogfileSensor):
         root: Path,
         cursors: CursorStore,
         exclude_paths: Iterable[Path | str] = (),
+        from_start_override: bool | None = None,
+        max_lines_override: int | None = None,
     ) -> None:
-        super().__init__(source, root=root, cursors=cursors)
+        super().__init__(
+            source,
+            root=root,
+            cursors=cursors,
+            from_start_override=from_start_override,
+            max_lines_override=max_lines_override,
+        )
         self.path = self.path.resolve()
         options = dict(source.options)
         self.globs = coerce_globs(options.get("globs", options.get("glob")))

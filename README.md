@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 321 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 322 tests pass.
 
 ---
 
@@ -205,6 +205,8 @@ alice run [--once] [--dry-run]   Poll inputs, ingest, index memory, and triage
 alice status                     Show config, schema, sources, counts, memory, spend, paused state
 alice discover [--root C:/] [--max-files N]
                                  Preview which log files a scan would track; no DB writes
+alice backfill [--lines N] [--max-lines N]
+                                 Read existing logs into the ledger; no model calls
 alice pause [--reason TEXT]      Block every model call until resumed
 alice resume                     Allow model calls again
 alice approve [ID]               List pending memory proposals, or approve one
@@ -344,6 +346,29 @@ Safety limits:
 
 The existing `logfile` source remains the right choice for a single known
 directory when you do not want a drive-wide scan.
+
+#### One-time backfill
+
+`alice backfill` reads existing lines into the ledger **without calling a
+model**, so the budget is untouched:
+
+```powershell
+alice backfill --lines 2000 --max-lines 50000
+```
+
+- `--lines` is the per-poll read budget (default 2,000).
+- `--max-lines` stops the run after that many observed lines (default 50,000);
+  `0` means unlimited.
+- It stops after two quiet polls or `--max-polls`.
+- Cursors advance per file, so running it again resumes rather than restarts.
+- Events stay `new`; the normal `alice run` triages them gradually under the
+  existing budget caps.
+- The command overrides the source's `from_start` only for that invocation, so
+  future log files still start at the end unless the config says otherwise.
+
+On this machine the discovered set was about 24 MB across roughly 1,000 files.
+A 50,000-line batch keeps the first run bounded; run it again if the summary
+says there is still backlog.
 
 ---
 
@@ -738,13 +763,15 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-321 tests cover:
+322 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
   cached refresh, and rotating fairness;
+- one-time backfill: `from_start` override, chunked reads, resumable cursors,
+  quiet-stop, and zero model calls;
 - a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
 - dedupe, collapse counts, salience, raw payload policy;

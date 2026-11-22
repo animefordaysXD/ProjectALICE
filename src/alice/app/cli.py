@@ -683,6 +683,126 @@ def startup(ctx: click.Context, action: str, user: str | None) -> None:
 
 
 @main.command()
+@click.option(
+    "--lines",
+    type=click.IntRange(min=1),
+    default=2000,
+    show_default=True,
+    help="Maximum lines read per source per poll.",
+)
+@click.option(
+    "--max-lines",
+    type=click.IntRange(min=0),
+    default=50000,
+    show_default=True,
+    help="Stop after this many observed lines; 0 means unlimited.",
+)
+@click.option(
+    "--max-polls",
+    type=click.IntRange(min=1),
+    default=500,
+    show_default=True,
+    help="Safety limit on the number of poll cycles.",
+)
+@click.option(
+    "--sleep",
+    type=click.FloatRange(min=0),
+    default=0.5,
+    show_default=True,
+    help="Seconds between polling cycles.",
+)
+@click.pass_context
+def backfill(
+    ctx: click.Context,
+    lines: int,
+    max_lines: int,
+    max_polls: int,
+    sleep: float,
+) -> None:
+    """Read existing logs into the ledger without calling a model."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+
+    try:
+        state = database_status(config.db_path)
+    except DatabaseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not state.initialized:
+        raise click.ClickException(
+            f"database not initialized at {config.db_path}; run `alice init` first"
+        )
+    if state.pending:
+        raise click.ClickException("database has pending migrations; run `alice init` first")
+
+    conn = connect(config.db_path, create=False)
+    try:
+        ingestion = build_ingestion(
+            config, conn, from_start=True, max_lines=lines
+        )
+        sensors, gate = ingestion.sensors, ingestion.gate
+        if not sensors:
+            raise click.ClickException(
+                "no sources configured; add one under `sources:` in config/alice.yaml"
+            )
+
+        click.echo(
+            "backfill mode: no model calls; normal `alice run` will triage the events"
+        )
+        if any(source.type == "logscan" for source in config.sources):
+            click.echo("scanning configured log roots; this can take 30-80 seconds...")
+
+        total = PollStats()
+        polls = 0
+        idle = 0
+        reason = "poll limit reached"
+        try:
+            for sensor in sensors:
+                sensor.start()
+            while polls < max_polls:
+                stats = poll_once(sensors, gate)
+                polls += 1
+                _add_stats(total, stats)
+                click.echo(
+                    f"{datetime.now():%H:%M:%S} backfill poll {polls}: "
+                    f"observed {total.observed}, inserted {total.inserted}, "
+                    f"collapsed {total.collapsed}, duplicates {total.duplicates}, "
+                    f"above gate {total.above_threshold}"
+                )
+                if stats.observed == 0:
+                    idle += 1
+                    if idle >= 2:
+                        reason = "caught up"
+                        break
+                else:
+                    idle = 0
+                if max_lines and total.observed >= max_lines:
+                    reason = "line budget reached"
+                    break
+                if sleep:
+                    time.sleep(sleep)
+        except KeyboardInterrupt:
+            reason = "interrupted"
+            click.echo("stopped")
+        finally:
+            for sensor in sensors:
+                sensor.stop()
+    finally:
+        conn.close()
+
+    click.echo(
+        _line(
+            "backfill",
+            f"{polls} polls, {total.observed} observed, {total.inserted} inserted, "
+            f"{total.collapsed} collapsed, {total.duplicates} duplicates, "
+            f"{total.above_threshold} above gate ({reason})",
+        )
+    )
+    if total.failures:
+        click.echo(_line("failures", f"{total.failures} source(s) failed; see the log"))
+
+
+@main.command()
 @click.option("--once", is_flag=True, help="Poll every source once, ingest, triage, and exit.")
 @click.option(
     "--dry-run",
@@ -948,6 +1068,23 @@ def _print_restore(result: RestoreResult) -> None:
     if result.day:
         detail += f" from {result.day}"
     click.echo(_line("restore", detail))
+
+
+_STAT_FIELDS = (
+    "polls",
+    "observed",
+    "inserted",
+    "collapsed",
+    "duplicates",
+    "above_threshold",
+    "redacted",
+    "failures",
+)
+
+
+def _add_stats(total: PollStats, stats: PollStats) -> None:
+    for name in _STAT_FIELDS:
+        setattr(total, name, getattr(total, name) + getattr(stats, name))
 
 
 def _print_poll(stats: PollStats, config: AppSettings, *, once: bool) -> None:

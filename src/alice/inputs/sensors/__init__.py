@@ -25,12 +25,22 @@ def build_sensors(
     root: Path,
     cursors: CursorStore,
     exclude_paths: Iterable[Path | str] = (),
+    from_start: bool | None = None,
+    max_lines: int | None = None,
 ) -> list[Sensor]:
     """Create one sensor per configured source."""
     sensors: list[Sensor] = []
     for source in sources:
         if source.type == "logfile":
-            sensors.append(LogfileSensor(source, root=root, cursors=cursors))
+            sensors.append(
+                LogfileSensor(
+                    source,
+                    root=root,
+                    cursors=cursors,
+                    from_start_override=from_start,
+                    max_lines_override=max_lines,
+                )
+            )
         elif source.type == "logscan":
             sensors.append(
                 LogScanSensor(
@@ -38,10 +48,20 @@ def build_sensors(
                     root=root,
                     cursors=cursors,
                     exclude_paths=exclude_paths,
+                    from_start_override=from_start,
+                    max_lines_override=max_lines,
                 )
             )
         elif source.type == "message":
-            sensors.append(StubMessageSensor(source, root=root, cursors=cursors))
+            sensors.append(
+                StubMessageSensor(
+                    source,
+                    root=root,
+                    cursors=cursors,
+                    from_start_override=from_start,
+                    max_lines_override=max_lines,
+                )
+            )
         else:  # config validation should make this unreachable
             raise ValueError(f"unsupported source type: {source.type}")
     return sensors
