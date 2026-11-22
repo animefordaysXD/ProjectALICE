@@ -125,3 +125,18 @@ class MemoryService:
         )
         self.conn.commit()
         return int(cursor.lastrowid)
+
+    def summary_exists(self, level: str, period_start: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM summaries WHERE level = ? AND period_start = ? LIMIT 1",
+            (level, period_start),
+        ).fetchone()
+        return row is not None
+
+    def summary_text(self, level: str, period_start: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT text FROM summaries WHERE level = ? AND period_start = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (level, period_start),
+        ).fetchone()
+        return None if row is None else str(row[0])

@@ -39,6 +39,8 @@ def test_repo_config_loads() -> None:
     assert config.memory.embedding.model == "minishlab/potion-multilingual-128M"
     assert config.memory.embedding.dimension == 256
     assert config.plugins.enabled == ()
+    assert config.brain.consolidation.hour == 3
+    assert config.brain.consolidation.max_events == 500
 
 
 def test_defaults_and_paths(config_path: Path) -> None:
@@ -117,6 +119,30 @@ def test_duplicate_plugin_is_rejected(config_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="duplicate"):
+        load_settings(config_path)
+
+
+def test_consolidation_section(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8")
+        + "\nconsolidation: {hour: 5, max_events: 10, max_tokens: 100}\n",
+    )
+
+    config = load_settings(config_path)
+
+    assert config.brain.consolidation.hour == 5
+    assert config.brain.consolidation.max_events == 10
+    assert config.brain.consolidation.max_tokens == 100
+
+
+def test_bad_consolidation_hour(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8") + "\nconsolidation: {hour: 24}\n",
+    )
+
+    with pytest.raises(ConfigError, match="between 0 and 23"):
         load_settings(config_path)
 
 

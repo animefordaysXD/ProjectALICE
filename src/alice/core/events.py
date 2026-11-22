@@ -121,6 +121,18 @@ class Ledger:
         ).fetchall()
         return [Event.from_row(row) for row in rows]
 
+    def between(self, start: str, end: str, limit: int = 2000) -> list[Event]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM events
+            WHERE ts >= ? AND ts < ?
+            ORDER BY ts, id
+            LIMIT ?
+            """,
+            (start, end, limit),
+        ).fetchall()
+        return [Event.from_row(row) for row in rows]
+
     def mark_status(self, event_ids: list[int], status: str) -> None:
         if not event_ids:
             return
@@ -244,3 +256,20 @@ class RawStore:
             temp.write_bytes(payload)
             os.replace(temp, path)
         return relative.as_posix()
+
+    def prune(self, cutoff_epoch: float, keep: set[str]) -> int:
+        """Delete raw payload files older than the cutoff, except kept refs."""
+        if not self.root.is_dir():
+            return 0
+        deleted = 0
+        for path in self.root.rglob("*.txt"):
+            try:
+                relative = path.relative_to(self.root).as_posix()
+                if relative in keep:
+                    continue
+                if path.stat().st_mtime < cutoff_epoch:
+                    path.unlink()
+                    deleted += 1
+            except OSError:
+                continue
+        return deleted

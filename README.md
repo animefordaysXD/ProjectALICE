@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M5 complete. M6 consolidation is next. 273 tests pass.
+**Status:** M0-M6 complete. M7 hardening is next. 285 tests pass.
 
 ---
 
@@ -79,6 +79,8 @@ Nightly work (next milestone) consolidates the day.
 | Triage | Batched Tier 1, strict JSON decisions, one retry, ledger status updates, `--dry-run` |
 | Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
 | Output | Suggestion queue, quiet hours, hourly toast cap, priority threshold, daily markdown digest |
+| Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
+| GUI | Read-only Tkinter dashboard with events, suggestions, memory approvals, digest, pause/resume |
 | Alerts | Budget refusals recorded and shown in the digest |
 | CLI | `init`, `run`, `status`, `pause`, `resume`, `approve` |
 | Packaging | Single-file `alice.exe`, portable folder, zip, setup shortcuts |
@@ -187,6 +189,8 @@ alice status                     Show config, schema, sources, counts, memory, s
 alice pause [--reason TEXT]      Block every model call until resumed
 alice resume                     Allow model calls again
 alice approve [ID]               List pending memory proposals, or approve one
+alice consolidate [--day DATE]   Summarize one day, propose memories, prune raw payloads
+alice gui                        Open the read-only desktop dashboard
 ```
 
 Global options: `--config PATH` (or `ALICE_CONFIG`), `--data-dir PATH`,
@@ -218,6 +222,11 @@ budget:
 triage:
   interval_minutes: 5
   max_batch_tokens: 3000
+
+consolidation:
+  hour: 3
+  max_events: 500
+  max_tokens: 6000
 
 sources:
   - {type: logfile, path: './logs', glob: '*.log', from_start: true}
@@ -300,6 +309,47 @@ suggestions.
   blocked call is never silent.
 - Toast delivery uses `win11toast`; if it is unavailable, suggestions stay
   queued and the digest still works.
+
+## Consolidation
+
+Nightly at `consolidation.hour` (default 03:00 local), Alice summarizes the
+previous local day:
+
+1. Events are grouped by local hour.
+2. Each hour is summarized by the `consolidate` tier (cheapest), batched and
+   token-capped. Existing hourly summaries are reused, so a retry is safe.
+3. A daily summary is produced from the hourly summaries.
+4. The model may propose up to three stable facts. These are written to
+   `proposals`, never to `hard_memory`; `alice approve` is still required.
+5. Raw payloads older than `retention.raw_payload_days` are deleted and their
+   `raw_ref` cleared. Ledger rows and summaries remain.
+
+`consolidation_runs` records one row per summarized day. A day is not processed
+twice unless `alice consolidate --day ...` is run explicitly. `alice run`
+checks the consolidation hour and retries a failed daily pass after an hour.
+
+## Desktop GUI
+
+`alice gui`, or `alice-gui.exe` / `Alice GUI.cmd` in the packaged build, opens a
+read-only Tkinter dashboard:
+
+- **Overview cards:** events, eligible events, queued suggestions, pending
+  proposals, spend, paused state.
+- **Events:** recent redacted events with status and salience.
+- **Suggestions:** priority, text, reason, delivery status.
+- **Memory:** core JSON path/token count, approved memory, pending proposals
+  with Approve/Reject buttons.
+- **Digest:** today's markdown; a button writes/updates it.
+- **Controls:** pause/resume model calls, open the data folder, core memory, or
+  digest folder.
+- **Refresh:** every five seconds.
+
+The GUI performs no sensing or reasoning. Approving memory, pausing calls, and
+writing a digest are explicit user actions; everything shown is read from the
+local database. It has no network access of its own.
+
+The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
+CLI remains available as `alice.exe`.
 
 ## Memory
 
@@ -495,6 +545,7 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 | `summaries` | memory | memory |
 | `memory_embeddings` | memory | memory |
 | `triage_batches` | brain | brain |
+| `consolidation_runs` | brain | brain |
 | `suggestions` | outputs | outputs |
 | `budget_alerts` | models | models |
 | `usage` | models | models |
@@ -521,11 +572,12 @@ powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
 Produces:
 
 ```text
-dist/alice/alice.exe        single-file console app (~42 MB)
+dist/alice/alice.exe        single-file console app (~43 MB)
+dist/alice/alice-gui.exe    windowed desktop dashboard (~43 MB)
 dist/alice/config/          editable config
 dist/alice/logs/            drop *.log files here
 dist/alice/messages.txt     one message per line
-dist/alice/*.cmd            Init / Run / Status / Data-folder shortcuts
+dist/alice/*.cmd            Init / Run / Status / Data-folder / GUI shortcuts
 dist/alice-windows-x64.zip  the whole folder
 ```
 
@@ -542,7 +594,7 @@ screen, and `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`.
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-273 tests cover:
+285 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -585,10 +637,10 @@ alice/
     inputs/                sensors, redaction, gate
     memory/                core JSON, hard/fast/archive, embeddings, recall
     models/                providers, router, budget, usage
-    brain/                 prompts, triage, future reasoning/consolidation
+    brain/                 prompts, triage, reasoning, consolidation
     outputs/               suggestion queue, digest, toasts
     plugins/               explicit registry and capability policy
-    app/                   CLI, settings, composition root
+    app/                   CLI, settings, GUI, composition root
   tests/                   offline tests and fixtures
 ```
 
@@ -607,22 +659,14 @@ test command.
 | M3 | Memory: core JSON, hard/fast/archive, embeddings, `approve` | done |
 | M4 | Triage: batches, prompt prefix, validated decisions, dry run | done |
 | M5 | Reasoning and output: escalations, suggestions, throttle, digest, toasts | done |
-| M6 | Consolidation: nightly summaries, proposals, raw pruning | next |
-| M7 | Hardening: logon start, crash recovery, encrypted backup, cost report | planned |
+| M6 | Consolidation: nightly summaries, proposals, raw pruning; read-only GUI | done |
+| M7 | Hardening: logon start, crash recovery, encrypted backup, cost report | next |
 
 ---
 
 ## Future plans
 
-### M6 — Consolidation (next)
-
-- Nightly job: roll events into hourly and daily summaries.
-- Cheapest model tier, batched, using summaries not raw logs.
-- Create hard-memory proposals when stable facts or recurring patterns appear.
-- Prune raw payloads past the retention window without losing ledger rows.
-- Delete embeddings for pruned events.
-
-### M7 — Hardening
+### M7 — Hardening (next)
 
 - Start at logon with Task Scheduler (service later).
 - Crash recovery proof: kill mid-run, restart, lose nothing, duplicate nothing.
@@ -666,6 +710,8 @@ test command.
   first write of the local day, and not during quiet hours.
 - The heavy tier is capped per day and only used when reasoning sets
   `needs_heavy`; no automatic escalation to heavy exists yet.
+- The GUI is a local read-only dashboard. It does not run sensors or reasoning
+  in the background; it reads the database written by `alice run`.
 - No CI or license file is present yet.
 
 ---

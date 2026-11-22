@@ -41,6 +41,7 @@ TOP_LEVEL = {
     "data_dir",
     "memory",
     "plugins",
+    "consolidation",
 }
 
 
@@ -138,7 +139,7 @@ def load_settings(
         models=parse_models(raw.get("models"), raw.get("budget")),
         inputs=parse_inputs(raw.get("sources"), raw.get("gate"), raw.get("redaction")),
         memory=parse_memory(raw.get("memory"), data_path),
-        brain=parse_brain(raw.get("triage")),
+        brain=parse_brain(raw.get("triage"), raw.get("consolidation")),
         outputs=parse_outputs(raw.get("notify")),
         plugins=parse_plugins(raw.get("plugins")),
     )

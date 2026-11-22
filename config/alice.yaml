@@ -29,6 +29,11 @@ triage:
   interval_minutes: 5
   max_batch_tokens: 3000
 
+consolidation:
+  hour: 3
+  max_events: 500
+  max_tokens: 6000
+
 memory:
   # Editable core memory, relative to the data directory.
   core_memory_file: './memory/core.json'

@@ -594,6 +594,58 @@ dry-run notifier is a no-op, so it never pops a toast.
 status transitions, retries, hourly/heavy limits, quiet hours, toast throttling,
 failed delivery, and digest content. The full suite is 273 tests.
 
+## 2026-11-22 — M6 consolidation and GUI
+
+### Consolidation targets yesterday
+
+The nightly job runs after `consolidation.hour` (03:00 local default) and
+summarizes the previous local day. `alice consolidate --day YYYY-MM-DD` allows a
+manual target. Events are grouped by local hour; each hour gets one cheap-tier
+call, then a daily call consumes the hourly summaries. This keeps prompts small
+and lets a day with many events stay within the model's batch budget.
+
+`consolidation_runs` records one row per day. A second automatic run is a no-op.
+If an hourly summary already exists it is reused, so a failed daily pass can be
+retried without duplicating hours. The run is marked only after a successful
+daily pass (or when there were no events).
+
+Daily proposals are inserted into `proposals`, never `hard_memory`; Jo still
+approves them with `alice approve`. At most three proposals are accepted from
+one reply.
+
+### Raw pruning
+
+After consolidation, raw payload files older than
+`retention.raw_payload_days` are deleted, except content still referenced by a
+newer event. Events older than the cutoff have `raw_ref` cleared. Ledger rows
+and summaries are never deleted. Pruning is independent of model success but
+runs in the consolidation pass.
+
+### GUI
+
+The user asked for a GUI; it is a **read-only dashboard**, not a new action
+surface.
+
+- Tkinter/ttk only: no extra dependency, ships with Python, works in the exe.
+- Views: events, suggestions, approved memory, pending proposals, today's
+  digest, counts, spend, pause state, last consolidation.
+- Actions are limited to explicit user administration: pause/resume, approve or
+  reject a memory proposal, write today's digest, and open local folders/files.
+- No sensing, no model calls, no reasoning in the GUI. It reads the database
+  that `alice run` writes. Auto-refreshes every five seconds.
+- Built as a separate windowed `alice-gui.exe` so the CLI keeps its console.
+  `Alice GUI.cmd` launches it.
+
+This is a deliberate, scoped exception to the Phase 1 "CLI and notifications
+only" line: the GUI cannot act on the computer or send anything.
+
+### Tests
+
+New coverage: consolidation grouping, hourly/daily summaries, proposals,
+idempotent reruns, retry and failure handling, raw pruning without ledger loss,
+configuration parsing, dashboard data, GUI module import, and a dry-run
+consolidation end to end. The suite is 285 tests.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

@@ -10,12 +10,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import click
 
 from .. import __version__
+from ..brain.consolidate import ConsolidationResult
 from ..brain.reason import ReasoningResult
 from ..brain.triage import TriageResult
 from ..core.config import ConfigError, default_config_path
@@ -38,6 +39,7 @@ from ..models.base import ProviderError, ProviderNotConfigured
 from ..models import RouterError
 from ..models.budget import BudgetError, BudgetGuard, clear_pause, pause_file, set_pause
 from .bootstrap import (
+    build_consolidation,
     build_digest,
     build_ingestion,
     build_memory,
@@ -192,6 +194,21 @@ def status(ctx: click.Context) -> None:
                     f"({'present' if digest_path.is_file() else 'not written yet'})",
                 )
             )
+        if state.version is not None and state.version >= 6:
+            row = conn.execute(
+                "SELECT day, summary_count, proposal_count FROM consolidation_runs "
+                "ORDER BY day DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                click.echo(_line("consolidate", "none yet"))
+            else:
+                click.echo(
+                    _line(
+                        "consolidate",
+                        f"last {row['day']}: {row['summary_count']} summaries, "
+                        f"{row['proposal_count']} proposals",
+                    )
+                )
         click.echo(
             _line(
                 "tasks",
@@ -337,6 +354,64 @@ def approve(ctx: click.Context, proposal_id: int | None) -> None:
 
 
 @main.command()
+@click.pass_context
+def gui(ctx: click.Context) -> None:
+    """Open the read-only desktop dashboard."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+    from .gui import run_gui
+
+    try:
+        run_gui(config.path, config.data_dir)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@main.command()
+@click.option("--day", "day_text", default=None, help="Local day YYYY-MM-DD (default: yesterday).")
+@click.option("--dry-run", is_flag=True, help="Use the fake provider.")
+@click.pass_context
+def consolidate(ctx: click.Context, day_text: str | None, dry_run: bool) -> None:
+    """Summarize one day, propose memories, and prune old raw payloads."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+    try:
+        state = database_status(config.db_path)
+    except DatabaseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not state.initialized:
+        raise click.ClickException(
+            f"database not initialized at {config.db_path}; run `alice init` first"
+        )
+    if state.pending:
+        raise click.ClickException("database has pending migrations; run `alice init` first")
+    target = None
+    if day_text:
+        try:
+            target = date.fromisoformat(day_text)
+        except ValueError as exc:
+            raise click.ClickException("--day must be YYYY-MM-DD") from exc
+
+    conn = connect(config.db_path, create=False)
+    try:
+        memory = build_memory(config, conn)
+        try:
+            router = build_models(config, conn, dry_run=dry_run)
+        except (ProviderNotConfigured, RouterError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        service = build_consolidation(config, conn, router, memory)
+        try:
+            result = service.run(target, force=True)
+        except (BudgetError, ProviderError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        _print_consolidation(result)
+    finally:
+        conn.close()
+
+
+@main.command()
 @click.option("--once", is_flag=True, help="Poll every source once, ingest, triage, and exit.")
 @click.option(
     "--dry-run",
@@ -380,6 +455,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
         raise click.ClickException(str(exc)) from exc
     queue = build_queue(conn)
     reasoning = build_reasoning(config, conn, router, memory, queue)
+    consolidation = build_consolidation(config, conn, router, memory)
     notifier = build_notifications(config, dry_run=dry_run)
     guard = BudgetGuard(conn, config.models.budget, config.data_dir)
     digest = build_digest(config, conn, guard)
@@ -391,6 +467,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
 
     stats: PollStats | None = None
     last_triage = 0.0
+    last_consolidation = 0.0
     triage_interval = max(1.0, config.brain.triage.interval_minutes * 60)
     try:
         for sensor in sensors:
@@ -444,6 +521,22 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                         f"{reasoning_result.batch_id} suggestions="
                         f"{reasoning_result.suggestions}"
                     )
+
+            local_now = datetime.now().astimezone()
+            if (
+                local_now.hour >= config.brain.consolidation.hour
+                and time.monotonic() - last_consolidation >= 3600
+            ):
+                try:
+                    consolidation_result = consolidation.run(now=local_now)
+                except (BudgetError, ProviderError) as exc:
+                    logger.warning("consolidation call blocked: %s", exc)
+                    if once:
+                        raise click.ClickException(str(exc)) from exc
+                else:
+                    if once and consolidation_result.ran:
+                        _print_consolidation(consolidation_result)
+                last_consolidation = time.monotonic()
 
             delivered = queue.deliver(notifier, config.outputs.notify)
             if once and delivered:
@@ -521,6 +614,18 @@ def _print_digest(result) -> None:
     click.echo(_line("digest", f"{result.path} ({state})"))
     if result.notified:
         click.echo(_line("toast", result.summary))
+
+
+def _print_consolidation(result: ConsolidationResult) -> None:
+    if not result.ran:
+        return
+    detail = (
+        f"{result.day}: {result.hours} hourly, {result.proposals} proposals, "
+        f"{result.raw_deleted} raw pruned"
+    )
+    if result.error:
+        detail += f" (error: {result.error})"
+    click.echo(_line("consolidate", detail))
 
 
 def _print_poll(stats: PollStats, config: AppSettings, *, once: bool) -> None:

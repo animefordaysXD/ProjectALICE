@@ -6,6 +6,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 
+from ..brain.consolidate import ConsolidationService
 from ..brain.reason import ReasoningService
 from ..brain.triage import TriageService
 from ..contracts.outputs import BudgetSnapshot
@@ -43,6 +44,18 @@ DRY_RUN_REASON = json.dumps(
         "needs_heavy": False,
     }
 )
+DRY_RUN_CONSOLIDATE = json.dumps(
+    {
+        "summary": "Dry run summary of the period.",
+        "proposals": [
+            {
+                "key": "dry_run_fact",
+                "value": "A dry-run fact for testing.",
+                "reason": "dry run",
+            }
+        ],
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -75,9 +88,12 @@ def build_models(
 
     responses: dict[str, str] = {}
     for tier, spec in settings.models.tiers.items():
-        responses[spec.model] = (
-            DRY_RUN_REASON if tier in ("reason", "heavy") else DRY_RUN_TRIAGE
-        )
+        if tier in ("reason", "heavy"):
+            responses[spec.model] = DRY_RUN_REASON
+        elif tier == "consolidate":
+            responses[spec.model] = DRY_RUN_CONSOLIDATE
+        else:
+            responses[spec.model] = DRY_RUN_TRIAGE
     fake = FakeProvider(
         default_response=DRY_RUN_TRIAGE,
         responses_by_model=responses,
@@ -141,6 +157,24 @@ def build_reasoning(
         max_escalations_per_hour=settings.models.budget.max_escalations_per_hour,
         max_heavy_per_day=settings.models.budget.max_heavy_per_day,
         heavy_calls_today=lambda: usage.count_since("heavy", day_start()),
+    )
+
+
+def build_consolidation(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router,
+    memory: MemoryService,
+) -> ConsolidationService:
+    return ConsolidationService(
+        conn,
+        router=router,
+        ledger=Ledger(conn),
+        memory=memory,
+        hard_memory=memory.hard_block,
+        raw_store=RawStore(settings.raw_dir),
+        config=settings.brain.consolidation,
+        retention=settings.core.retention,
     )
 
 

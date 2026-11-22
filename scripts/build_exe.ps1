@@ -1,4 +1,4 @@
-# Build Alice's single-file Windows executable and the distributable folder.
+# Build Alice's Windows executables and the distributable folder.
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -13,22 +13,29 @@ try {
         throw "PyInstaller is missing. Run: .\.venv\Scripts\python.exe -m pip install pyinstaller"
     }
 
-    & $python -m PyInstaller --noconfirm --onefile --console --name alice `
-        --paths src `
-        --hidden-import anthropic `
-        --collect-all sqlite_vec `
-        --collect-all model2vec `
-        --collect-all win11toast `
-        --hidden-import win11toast `
-        --add-data "src/alice/core/migrations;alice/core/migrations" `
-        src/alice/__main__.py
-    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
+    $common = @(
+        "--noconfirm", "--onefile",
+        "--paths", "src",
+        "--hidden-import", "anthropic",
+        "--hidden-import", "win11toast",
+        "--collect-all", "sqlite_vec",
+        "--collect-all", "model2vec",
+        "--collect-all", "win11toast",
+        "--add-data", "src/alice/core/migrations;alice/core/migrations"
+    )
+
+    & $python -m PyInstaller @common --console --name alice src/alice/__main__.py
+    if ($LASTEXITCODE -ne 0) { throw "CLI build failed with exit code $LASTEXITCODE" }
+
+    & $python -m PyInstaller @common --windowed --name alice-gui src/alice/gui_main.py
+    if ($LASTEXITCODE -ne 0) { throw "GUI build failed with exit code $LASTEXITCODE" }
 
     $app = Join-Path $root "dist\alice"
     if (Test-Path $app) { Remove-Item -Recurse -Force $app }
     New-Item -ItemType Directory -Path "$app\config", "$app\logs" -Force | Out-Null
 
     Copy-Item "dist\alice.exe" "$app\alice.exe" -Force
+    Copy-Item "dist\alice-gui.exe" "$app\alice-gui.exe" -Force
     Copy-Item "packaging\alice.yaml" "$app\config\alice.yaml" -Force
     Copy-Item "packaging\*.cmd" $app -Force
     Copy-Item "packaging\README.txt" "$app\README.txt" -Force
@@ -40,6 +47,7 @@ try {
 
     Write-Host ""
     Write-Host "Built:  $app\alice.exe"
+    Write-Host "GUI:    $app\alice-gui.exe"
     Write-Host "Folder: $app"
     Write-Host "Zip:    $zip"
     exit 0

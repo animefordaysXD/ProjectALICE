@@ -97,12 +97,12 @@ src/alice/
     budget.py              usage log, caps, kill switch
   brain/                   what Alice decides
     __init__.py
-    config.py              triage timing
+    config.py              triage and consolidation timing
     json_output.py         JSON object extraction
-    prompts.py             prompts for triage and reasoning
+    prompts.py             prompts for triage, reasoning, consolidation
     triage.py              Tier 1 batching and decisions
     reason.py              Tier 2 escalation reasoning
-    consolidate.py         (M6) Tier 3
+    consolidate.py         Tier 3 nightly summaries and proposals
   outputs/                 how Alice tells Jo
     __init__.py
     config.py              notify mode, quiet hours, toast limits
@@ -115,7 +115,10 @@ src/alice/
   app/                     composition root
     __init__.py
     cli.py                 click commands
+    settings.py            composes per-module config
     bootstrap.py           builds and wires services
+    dashboard.py           read-only data for the GUI
+    gui.py                 Tkinter desktop dashboard
 ```
 
 ## What goes in each module
@@ -247,6 +250,11 @@ Depends on: every module.
 Must not: contain domain logic. If a decision needs a test of its own, it
 belongs in a module.
 
+The desktop GUI lives here because it is presentation and composition, not a
+decision-maker. It reads the database, can pause/resume calls, approve/reject
+proposals, and write a digest. It never senses, reasons, or acts on the user's
+behalf.
+
 ## Data ownership
 
 One writer per table. Other modules read through a service, never through raw
@@ -263,6 +271,7 @@ SQL.
 | `summaries` | memory | memory (requested by brain) | `MemoryStore` |
 | `memory_embeddings` | memory | memory | memory |
 | `triage_batches` | brain | brain | brain |
+| `consolidation_runs` | brain | brain | brain/status |
 | `suggestions` | outputs | outputs | outputs |
 | `budget_alerts` | models | models | models/status/digest |
 | `usage` | models | models | budget/status |
@@ -305,6 +314,7 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 | `models`, `budget` | models | done |
 | `sources`, `gate`, `redaction` | inputs | done |
 | `triage` | brain | done |
+| `consolidation` | brain | done |
 | `notify` | outputs | done |
 | `memory` | memory | done |
 | `plugins` | plugins | done |
@@ -361,8 +371,9 @@ A module is "separate" when all of these are true:
 | 3. M3 memory implementation inside `memory/` | done |
 | 4. M4 triage inside `brain/`, `run --dry-run` | done |
 | 5. M5 reasoning and `outputs` queue | done |
-| 6. M6 consolidation, then M7 hardening | next |
-| 7. Optional extraction of a module into its own distribution | only if needed |
+| 6. M6 consolidation and read-only GUI | done |
+| 7. M7 hardening | next |
+| 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 273-test suite is the safety net.
+the boundaries move; the 285-test suite is the safety net.

@@ -45,6 +45,7 @@ First run
 4. Double-click "Run Alice.cmd" to start. Ctrl+C stops it.
    The first run downloads the local embedding model (about 130 MB) into
    cache\; later runs reuse it.
+5. Double-click "Alice GUI.cmd" for the read-only desktop dashboard.
 
 Commands
 --------
@@ -53,6 +54,8 @@ Commands
   alice.exe run --dry-run          same, using the fake model and no spend
   alice.exe approve                list pending memory proposals
   alice.exe approve <id>           approve a proposal (the only write path)
+  alice.exe consolidate --day 2026-11-21   summarize a day and prune raw data
+  alice.exe gui                    open the read-only desktop dashboard
   alice.exe pause --reason "..."   block every model call
   alice.exe resume                 allow model calls again
 
@@ -67,6 +70,8 @@ Notes
 - Suggestions appear in a daily markdown digest under digests\. Toasts use
   win11toast; if Windows notifications are disabled, suggestions stay queued and
   the digest still works.
+- The GUI is a local read-only dashboard. "Alice GUI.cmd" opens alice-gui.exe;
+  it does not run sensors or reasoning in the background.
 - Alice automatically moves an old `state` folder from this app directory into
   the per-user data folder on first start. If both already contain data, it
   leaves the old folder alone and logs a warning.

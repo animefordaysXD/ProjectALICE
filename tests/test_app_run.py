@@ -253,6 +253,36 @@ def test_pii_scan_of_every_stored_event(tmp_path: Path) -> None:
         assert needle not in log_text
 
 
+def test_consolidate_dry_run_writes_summaries(tmp_path: Path) -> None:
+    root = tmp_path / "alice"
+    root.mkdir()
+    logs, messages = setup_fixtures(root)
+    config_path = write_config(root, log_dir=logs, messages=messages)
+    assert invoke(config_path, "init").exit_code == 0
+    assert invoke(config_path, "run", "--once", "--dry-run").exit_code == 0
+
+    today = datetime.now().astimezone().date().isoformat()
+    result = invoke(
+        config_path, "consolidate", "--day", today, "--dry-run"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "consolidate" in result.output
+    conn = connect(root / "state" / "alice.db", create=False)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM summaries").fetchone()[0] > 0
+        run = conn.execute(
+            "SELECT * FROM consolidation_runs WHERE day = ?", (today,)
+        ).fetchone()
+        assert run is not None
+        assert run["summary_count"] > 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM proposals WHERE status = 'pending'"
+        ).fetchone()[0] > 0
+    finally:
+        conn.close()
+
+
 def test_poll_once_counts_duplicates(tmp_path: Path) -> None:
     """The Korean fixture repeats one line; the ledger must drop it."""
     root = tmp_path / "alice"
