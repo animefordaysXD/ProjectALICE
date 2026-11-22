@@ -27,8 +27,9 @@ budget:
   max_heavy_per_day: 3
 
 triage:
-  interval_minutes: 5
-  max_batch_tokens: 3000
+  # Tuned for the one-time backlog drain: one batch per minute, larger batches.
+  interval_minutes: 1
+  max_batch_tokens: 6000
 
 consolidation:
   hour: 3

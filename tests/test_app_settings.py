@@ -22,7 +22,8 @@ def test_repo_config_loads() -> None:
     assert set(config.models) == {"triage", "reason", "heavy", "consolidate"}
     assert config.models["consolidate"].batch is True
     assert config.budget.hard_daily_usd == 2.50
-    assert config.triage.interval_minutes == 5
+    assert config.triage.interval_minutes == 1
+    assert config.triage.max_batch_tokens == 6000
     assert config.notify.quiet_hours == "22:00-08:00"
     assert config.notify.min_toast_priority == 2
     assert [source.type for source in config.sources] == ["logscan", "message"]

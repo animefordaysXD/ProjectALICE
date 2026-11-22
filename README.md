@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 322 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 323 tests pass.
 
 ---
 
@@ -248,8 +248,8 @@ budget:
   max_heavy_per_day: 3
 
 triage:
-  interval_minutes: 5
-  max_batch_tokens: 3000
+  interval_minutes: 1
+  max_batch_tokens: 6000
 
 consolidation:
   hour: 3
@@ -514,6 +514,28 @@ GitHub Actions runs the suite and the crash proof on `windows-latest`, builds
 both executables, smoke-tests `init`/`status`/`backup`/`report`, and uploads
 `alice-windows-x64.zip`. A `v*` tag publishes the zip as a release asset.
 
+### Timed runs and handover
+
+For an unattended session:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_session.ps1 -Hours 6
+```
+
+The supervisor:
+
+- initializes the database if needed;
+- starts `alice run` hidden and restarts it if it exits early;
+- asks Windows not to sleep while the session is active;
+- stops at the deadline, writes a backup, a status snapshot, and
+  `alice report --write`;
+- runs the full pytest suite into `pytest.log`;
+- writes `handover.md` and `session.json` under
+  `%LOCALAPPDATA%\Alice\handover\<timestamp>\`.
+
+`scripts/session_report.py` can rebuild the handover from the database and logs
+without starting Alice. `-DryRun` is available for testing the supervisor.
+
 ## Memory
 
 Alice has three memory layers plus an editable core file.
@@ -763,7 +785,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-322 tests cover:
+323 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -772,6 +794,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
   cached refresh, and rotating fairness;
 - one-time backfill: `from_start` override, chunked reads, resumable cursors,
   quiet-stop, and zero model calls;
+- timed-session handover report: usage, triage, suggestions, logs, integrity;
 - a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
 - dedupe, collapse counts, salience, raw payload policy;
