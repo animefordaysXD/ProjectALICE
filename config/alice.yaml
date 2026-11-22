@@ -78,3 +78,10 @@ notify:
 retention:
   raw_payload_days: 14
   max_raw_mb: 50
+
+backup:
+  # Encrypted with Windows DPAPI for the current user. Relative to the data dir.
+  enabled: true
+  dir: backups
+  hour: 4
+  keep: 7

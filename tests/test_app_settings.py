@@ -41,6 +41,10 @@ def test_repo_config_loads() -> None:
     assert config.plugins.enabled == ()
     assert config.brain.consolidation.hour == 3
     assert config.brain.consolidation.max_events == 500
+    assert config.core.backup.enabled is True
+    assert config.core.backup.dir == config.data_dir / "backups"
+    assert config.core.backup.hour == 4
+    assert config.core.backup.keep == 7
 
 
 def test_defaults_and_paths(config_path: Path) -> None:
@@ -57,6 +61,8 @@ def test_defaults_and_paths(config_path: Path) -> None:
     assert config.triage.max_batch_tokens == 3000
     assert config.notify.mode == "digest+toast"
     assert config.retention.raw_payload_days == 14
+    assert config.core.backup.enabled is True
+    assert config.core.backup.dir == root / "state" / "backups"
     assert config.models["triage"].batch is False
     assert config.sources[0].options == {"path": "./logs", "glob": "*.log"}
     assert config.memory.hard_max_tokens == 2000
@@ -143,6 +149,31 @@ def test_bad_consolidation_hour(config_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="between 0 and 23"):
+        load_settings(config_path)
+
+
+def test_backup_section(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8")
+        + "\nbackup: {enabled: false, dir: 'copies', hour: 2, keep: 3}\n",
+    )
+
+    config = load_settings(config_path)
+
+    assert config.core.backup.enabled is False
+    assert config.core.backup.dir == config.data_dir / "copies"
+    assert config.core.backup.hour == 2
+    assert config.core.backup.keep == 3
+
+
+def test_bad_backup_hour(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8") + "\nbackup: {hour: 24}\n",
+    )
+
+    with pytest.raises(ConfigError, match="backup.hour"):
         load_settings(config_path)
 
 

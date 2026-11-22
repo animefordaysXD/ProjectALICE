@@ -38,10 +38,10 @@ def test_init_creates_database_and_seeds(config_path: Path) -> None:
     result = run(config_path, "init")
 
     assert result.exit_code == 0, result.output
-    assert "schema      v6" in result.output
+    assert "schema      v7" in result.output
     assert (
         "migrations  applied 001_initial, 002_events_count, 003_memory, "
-        "004_triage, 005_outputs, 006_consolidation"
+        "004_triage, 005_outputs, 006_consolidation, 007_hardening"
         in result.output
     )
 
@@ -79,8 +79,8 @@ def test_status_after_init(config_path: Path) -> None:
     result = run(config_path, "status")
 
     assert result.exit_code == 0, result.output
-    assert "schema      v6 (up to date)" in result.output
-    assert "tables      12" in result.output
+    assert "schema      v7 (up to date)" in result.output
+    assert "tables      13" in result.output
     assert "events      0" in result.output
     assert "spend today $0.0000 over 0 calls" in result.output
 
@@ -111,6 +111,7 @@ def test_status_reports_counts_and_spend(config_path: Path) -> None:
         )
         conn.commit()
         assert set(table_names(conn)) == {
+            "backup_runs",
             "budget_alerts",
             "consolidation_runs",
             "cursors",
@@ -355,4 +356,59 @@ def test_version_option() -> None:
 
     assert result.exit_code == 0
     assert "0.1.0" in result.output
+
+
+def test_report_shows_usage_and_writes_a_file(config_path: Path) -> None:
+    assert run(config_path, "init").exit_code == 0
+    root = config_path.parent.parent
+    conn = connect(root / "state" / "alice.db", create=False)
+    try:
+        conn.execute(
+            "INSERT INTO usage (ts, tier, model, input_tokens, output_tokens, cost_usd) "
+            "VALUES (?, 'triage', 'fake-triage', 100, 20, 0.25)",
+            (utc_now(),),
+        )
+        conn.execute(
+            "INSERT INTO events (ts, source, kind, content_hash, text_redacted) "
+            "VALUES (?, 'logfile:app.log', 'log', 'h1', 'disk error')",
+            (utc_now(),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = run(config_path, "report", "--days", "7")
+    assert result.exit_code == 0, result.output
+    assert "Alice report" in result.output
+    assert "fake-triage" in result.output
+    assert "- Model calls: 1" in result.output
+
+    written = run(config_path, "report", "--write")
+    assert written.exit_code == 0, written.output
+    assert "reports" in written.output
+    assert list((root / "state" / "reports").glob("report-*.md"))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="DPAPI is Windows-only")
+def test_backup_list_and_restore(config_path: Path, tmp_path: Path) -> None:
+    assert run(config_path, "init").exit_code == 0
+    root = config_path.parent.parent
+
+    result = run(config_path, "backup")
+    assert result.exit_code == 0, result.output
+    assert "backup" in result.output
+    files = list((root / "state" / "backups").glob("*.alicebak"))
+    assert len(files) == 1
+
+    listing = run(config_path, "backup", "--list")
+    assert listing.exit_code == 0, listing.output
+    assert files[0].name in listing.output
+
+    target = tmp_path / "restored"
+    restored = run(
+        config_path, "backup", "--restore", str(files[0]), "--to", str(target)
+    )
+    assert restored.exit_code == 0, restored.output
+    assert "restore" in restored.output
+    assert (target / "alice.db").is_file()
 

@@ -4,13 +4,13 @@ Composition root and process lifecycle. The only module allowed to import every
 other module.
 
 - `cli.py`: `init`, `run`, `status`, `pause`, `resume`, `approve`,
-  `consolidate`, `gui`.
+  `consolidate`, `backup`, `report`, `startup`, `gui`.
 - `settings.py`: composes per-module config into `AppSettings`.
 - `bootstrap.py`: opens the database and wires sensors → gate → ledger, models,
-  memory, reasoning, consolidation, and delivery.
+  memory, reasoning, consolidation, backup, and delivery.
 - `dashboard.py`: read-only dashboard data.
 - `gui.py`: Tkinter dashboard. Read-only plus explicit admin actions.
-- Future: scheduler, Windows Task Scheduler/service entry.
+- Future: a service host if toasts and per-user DPAPI stop being requirements.
 
 Owns no tables and contains no domain policy.
 

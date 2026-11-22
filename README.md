@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M6 complete. M7 hardening is next. 285 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 309 tests pass.
 
 ---
 
@@ -22,6 +22,11 @@ with strict module boundaries and an import test.
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Configuration](#configuration)
+- [Consolidation](#consolidation)
+- [Desktop GUI](#desktop-gui)
+- [Backups and restore](#backups-and-restore)
+- [Weekly report](#weekly-report)
+- [Startup, crash recovery, and CI](#startup-crash-recovery-and-ci)
 - [Memory](#memory)
 - [Triage](#triage)
 - [Models, OpenCode Go, and cost control](#models-opencode-go-and-cost-control)
@@ -49,7 +54,7 @@ She runs continuously in the background, mostly without AI. Deterministic code
 tails logs, masks personal data, hashes and groups events, and computes a
 salience score. A cheap model is called only for batches that pass the gate,
 and only when there is something new. A stronger tier handles escalations.
-Nightly work (next milestone) consolidates the day.
+Nightly work consolidates the day and then writes an encrypted local backup.
 
 ### Phase 1 non-goals
 
@@ -57,7 +62,9 @@ Nightly work (next milestone) consolidates the day.
 - No actions on Jo's behalf: no sending messages, editing files, or running
   commands.
 - No cloud database or remote VM.
-- No GUI beyond the CLI and Windows notifications.
+- No action-capable GUI. The only GUI is the read-only dashboard described
+  below; it cannot sense, reason, or change anything outside explicit admin
+  actions (pause, memory approval, digest/backup/report writing).
 - No unsandboxed third-party plugins with action capabilities.
 
 ---
@@ -81,9 +88,14 @@ Nightly work (next milestone) consolidates the day.
 | Output | Suggestion queue, quiet hours, hourly toast cap, priority threshold, daily markdown digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
 | GUI | Read-only Tkinter dashboard with events, suggestions, memory approvals, digest, pause/resume |
+| Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
+| Report | `alice report` weekly spend, token, tier, model, and activity trends |
+| Startup | Hidden logon Scheduled Task with restart-on-failure; `alice startup` |
+| Recovery | Crash-safe cursors: restart loses nothing and writes no duplicates |
+| CI | Windows GitHub Actions: tests, crash proof, exe build, smoke test, release asset |
 | Alerts | Budget refusals recorded and shown in the digest |
-| CLI | `init`, `run`, `status`, `pause`, `resume`, `approve` |
-| Packaging | Single-file `alice.exe`, portable folder, zip, setup shortcuts |
+| CLI | `init`, `run`, `status`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui` |
+| Packaging | Single-file `alice.exe`, `alice-gui.exe`, portable folder, zip, setup shortcuts |
 
 ---
 
@@ -190,6 +202,13 @@ alice pause [--reason TEXT]      Block every model call until resumed
 alice resume                     Allow model calls again
 alice approve [ID]               List pending memory proposals, or approve one
 alice consolidate [--day DATE]   Summarize one day, propose memories, prune raw payloads
+alice backup [--list]            Create an encrypted backup, or list local backups
+alice backup --restore FILE [--to DIR] [--force]
+                                 Verify and restore a backup
+alice report [--days N] [--write]
+                                 Weekly spend, token, tier, and activity report
+alice startup [--install|--remove|--status]
+                                 Manage the hidden logon Scheduled Task
 alice gui                        Open the read-only desktop dashboard
 ```
 
@@ -260,6 +279,12 @@ notify:
 retention:
   raw_payload_days: 14
   max_raw_mb: 50
+
+backup:
+  enabled: true
+  dir: backups
+  hour: 4
+  keep: 7
 
 plugins:
   enabled: []
@@ -350,6 +375,67 @@ local database. It has no network access of its own.
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
+
+## Backups and restore
+
+At `backup.hour` (default 04:00 local), after consolidation, Alice writes
+`backups/alice-YYYY-MM-DD.alicebak`. The file is a ZIP containing:
+
+- `alice.db` — a consistent snapshot taken with SQLite's online backup API;
+- `memory/core.json` — the editable core memory, when present;
+- `manifest.json` — day, creation time, version, and member list.
+
+The ZIP is encrypted with **Windows DPAPI** for the current user. There is no
+password and no key in config. The trade-off is that the backup can only be
+restored by the same Windows user on the same machine (or a profile whose DPAPI
+master keys were migrated). `backup.keep` controls how many daily files remain;
+older files and their `backup_runs` rows are removed.
+
+Manual use:
+
+```powershell
+alice backup                      # create now
+alice backup --list               # show local files
+alice backup --restore FILE --to C:\restore\alice --force
+```
+
+Restore verifies the ZIP, runs `PRAGMA integrity_check` on the snapshot, applies
+any pending migrations, and refuses to replace an existing database unless
+`--force` is given.
+
+## Weekly report
+
+`alice report` renders markdown from the local ledger without calling a model:
+
+- calls, spend, input/cached/output tokens, average cost per call;
+- daily usage rows;
+- usage by tier and by model;
+- events and suggestions per day;
+- current queue depth and pending memory proposals;
+- recent budget alerts.
+
+`--days N` changes the window (default 7). `--write` writes
+`reports/report-YYYY-MM-DD.md` instead of printing. OpenCode Go reports `$0`
+cost because it is a subscription, so token counts are the useful trend there.
+
+## Startup, crash recovery, and CI
+
+`alice startup --install` registers a hidden Task Scheduler task named `Alice`
+that runs at logon with `RestartCount 3` / one-minute intervals. It uses
+PowerShell `-WindowStyle Hidden`, so no console window stays on screen. Install
+from the packaged folder; the task uses the exe's own config and per-user data
+directory. `--status` and `--remove` manage it.
+
+Crash recovery is a property of the ingestion order: each event is committed
+before the sensor cursor advances. A crash between those steps re-reads lines on
+the next start; the content hash drops the duplicates, and no committed event is
+lost. `scripts/crash_recovery.ps1` proves this by killing `alice run` mid-flight,
+restarting, draining the file, and asserting that the event count is stable,
+the cursor reaches EOF, and `integrity_check` is `ok`.
+
+GitHub Actions runs the suite and the crash proof on `windows-latest`, builds
+both executables, smoke-tests `init`/`status`/`backup`/`report`, and uploads
+`alice-windows-x64.zip`. A `v*` tag publishes the zip as a release asset.
 
 ## Memory
 
@@ -530,7 +616,8 @@ before opening the database. It never merges two non-empty stores; it warns and
 leaves the old folder in place instead.
 
 The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
-`memory/seed/`, `cache/`, `digests/`, `opencode/`, and `paused.json`.
+`memory/seed/`, `cache/`, `digests/`, `reports/`, `backups/`, `opencode/`, and
+`paused.json`.
 
 ### Table ownership
 
@@ -546,6 +633,7 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 | `memory_embeddings` | memory | memory |
 | `triage_batches` | brain | brain |
 | `consolidation_runs` | brain | brain |
+| `backup_runs` | core | core backup service |
 | `suggestions` | outputs | outputs |
 | `budget_alerts` | models | models |
 | `usage` | models | models |
@@ -572,19 +660,21 @@ powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
 Produces:
 
 ```text
-dist/alice/alice.exe        single-file console app (~43 MB)
-dist/alice/alice-gui.exe    windowed desktop dashboard (~43 MB)
+dist/alice/alice.exe        single-file console app (~46 MB)
+dist/alice/alice-gui.exe    windowed desktop dashboard (~46 MB)
 dist/alice/config/          editable config
 dist/alice/logs/            drop *.log files here
 dist/alice/messages.txt     one message per line
-dist/alice/*.cmd            Init / Run / Status / Data-folder / GUI shortcuts
+dist/alice/*.cmd            Init / Run / Status / Data / GUI / Startup / Backup / Report
 dist/alice-windows-x64.zip  the whole folder
 ```
 
 The exe bundles Python, sqlite-vec, and model2vec. It does **not** bundle the
 embedding weights; the first indexing run downloads them. Use
 `Run Alice.cmd` for init + continuous run, `Alice status.cmd` for a status
-screen, and `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`.
+screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
+`Install startup.cmd` to register the hidden logon task. `Backup now.cmd` and
+`Report.cmd` wrap the corresponding commands.
 
 ---
 
@@ -594,17 +684,22 @@ screen, and `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`.
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-285 tests cover:
+309 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
+- a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
 - dedupe, collapse counts, salience, raw payload policy;
 - router tiers, pricing, retries, budgets, pause, PII scan of outgoing payloads;
 - core memory JSON, hard memory approvals and write protection, TTL tasks;
 - FTS and sqlite-vec recall, summaries-first ranking, token budgets;
 - triage decisions, retries, batching, 200-event replay, prompt-prefix stability;
+- consolidation summaries, proposals, idempotency, retention pruning;
+- DPAPI encryption roundtrip, backup create/record/prune, tamper rejection, restore;
+- weekly report totals, daily/tier/model tables, markdown write;
+- Scheduled Task script generation and quoting;
 - CLI and dry-run end-to-end;
 - module import boundaries and plugin registry.
 
@@ -630,15 +725,18 @@ alice/
   packaging/               config, shortcuts, README for the exe
   scripts/
     build_exe.ps1          PyInstaller build + distribution folder/zip
+    crash_recovery.ps1     kill/restart proof
+    crash_stats.py         read-only counts for the proof
     embedding_eval.py      Korean/English retrieval evaluation
+  .github/workflows/       CI and tag release
   src/alice/
     contracts/             value types and protocols
-    core/                  config helpers, db, ledger, paths, logging, migrations
+    core/                  config, db, ledger, paths, backup, startup, migrations
     inputs/                sensors, redaction, gate
     memory/                core JSON, hard/fast/archive, embeddings, recall
     models/                providers, router, budget, usage
     brain/                 prompts, triage, reasoning, consolidation
-    outputs/               suggestion queue, digest, toasts
+    outputs/               suggestion queue, digest, report, toasts
     plugins/               explicit registry and capability policy
     app/                   CLI, settings, GUI, composition root
   tests/                   offline tests and fixtures
@@ -660,19 +758,14 @@ test command.
 | M4 | Triage: batches, prompt prefix, validated decisions, dry run | done |
 | M5 | Reasoning and output: escalations, suggestions, throttle, digest, toasts | done |
 | M6 | Consolidation: nightly summaries, proposals, raw pruning; read-only GUI | done |
-| M7 | Hardening: logon start, crash recovery, encrypted backup, cost report | next |
+| M7 | Hardening: logon start, crash recovery, encrypted backup, cost report, CI | done |
 
 ---
 
 ## Future plans
 
-### M7 — Hardening (next)
-
-- Start at logon with Task Scheduler (service later).
-- Crash recovery proof: kill mid-run, restart, lose nothing, duplicate nothing.
-- Encrypted nightly backup with a tested restore.
-- `alice report` weekly cost report and usage trends.
-- CI: tests, exe build, smoke test, release artifact.
+Phase 1 is feature-complete through M7. The next work is Phase 2, not another
+milestone in the original spec.
 
 ### After Phase 1 is stable
 
@@ -712,7 +805,12 @@ test command.
   `needs_heavy`; no automatic escalation to heavy exists yet.
 - The GUI is a local read-only dashboard. It does not run sensors or reasoning
   in the background; it reads the database written by `alice run`.
-- No CI or license file is present yet.
+- Encrypted backups use Windows DPAPI and are therefore per-user and
+  per-machine. Copying a `.alicebak` to another account will not restore.
+- The logon task is installed for the current user and needs that user's
+  Windows session for toasts. A service would need a separate notification path.
+- `alice startup --install` requires the packaged build; source checkouts use
+  the PowerShell scripts directly.
 
 ---
 

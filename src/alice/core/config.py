@@ -9,7 +9,7 @@ from __future__ import annotations
 import codecs
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -32,10 +32,19 @@ class Retention:
 
 
 @dataclass(frozen=True)
+class Backup:
+    enabled: bool = True
+    dir: Path = Path("backups")
+    hour: int = 4
+    keep: int = 7
+
+
+@dataclass(frozen=True)
 class CoreConfig:
     data_dir: Path
     seed_dir: Path
     retention: Retention
+    backup: Backup = field(default_factory=Backup)
 
 
 def default_config_path() -> Path:
@@ -177,6 +186,23 @@ def parse_retention(raw: Any) -> Retention:
     if max_raw_mb <= 0:
         raise ConfigError("retention.max_raw_mb must be greater than zero")
     return Retention(raw_payload_days=days, max_raw_mb=max_raw_mb)
+
+
+def parse_backup(raw: Any, data_dir: Path) -> Backup:
+    mapping = as_mapping(raw or {}, "backup")
+    reject_unknown(mapping, {"enabled", "dir", "hour", "keep"}, "backup")
+    enabled = get_boolean(mapping, "enabled", "backup", default=True)
+    hour = get_integer(mapping, "hour", "backup", default=4)
+    keep = get_integer(mapping, "keep", "backup", default=7)
+    if not 0 <= hour <= 23:
+        raise ConfigError("backup.hour must be between 0 and 23")
+    if keep <= 0:
+        raise ConfigError("backup.keep must be greater than zero")
+    value = mapping.get("dir", "backups")
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError("backup.dir must be a non-empty path string")
+    directory = resolve_path(Path(value).expanduser(), data_dir)
+    return Backup(enabled=enabled, dir=directory, hour=hour, keep=keep)
 
 
 def validate_encoding(value: Any, where: str) -> str:

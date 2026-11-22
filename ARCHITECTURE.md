@@ -65,6 +65,8 @@ src/alice/
     config.py              YAML loading, validation, shared config types
     db.py                  connection, pragmas, migrations
     events.py              ledger writes, Event/RawEvent, cursors, raw store
+    backup.py              DPAPI-encrypted snapshot, restore, pruning
+    startup.py             logon Scheduled Task install/status/remove
     logging.py             rotating file log
     paths.py               runtime data location, profiles, migration
     migrations/            SQL, one file per schema version
@@ -108,6 +110,7 @@ src/alice/
     config.py              notify mode, quiet hours, toast limits
     queue.py               suggestion queue and throttling
     digest.py              daily markdown and summary toast
+    report.py              weekly usage/activity markdown
     notify.py              Windows toast adapter
   plugins/                 optional extensions
     __init__.py
@@ -143,12 +146,14 @@ for value validation only.
 Infrastructure and the append-only ledger. If two modules need it and it is not
 a protocol, it belongs here.
 
-- Config loader helpers and core-owned settings (paths, retention).
+- Config loader helpers and core-owned settings (paths, retention, backup).
 - `Event`, `RawEvent`, ledger writes, cursors, raw payload store.
+- Encrypted local backups and restore verification.
+- Logon Scheduled Task helpers.
 - Migrations for the whole database, with table ownership documented below.
 
-Owns tables: `schema_migrations`, `events`, `cursors`.
-Config sections: top level, `data_dir`, `retention`.
+Owns tables: `schema_migrations`, `events`, `cursors`, `backup_runs`.
+Config sections: top level, `data_dir`, `retention`, `backup`.
 Depends on: `contracts`.
 
 ### inputs
@@ -272,6 +277,7 @@ SQL.
 | `memory_embeddings` | memory | memory | memory |
 | `triage_batches` | brain | brain | brain |
 | `consolidation_runs` | brain | brain | brain/status |
+| `backup_runs` | core | core backup service | status/backup |
 | `suggestions` | outputs | outputs | outputs |
 | `budget_alerts` | models | models | models/status/digest |
 | `usage` | models | models | budget/status |
@@ -310,7 +316,7 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 
 | Section | Owner | Status |
 | --- | --- | --- |
-| top-level paths, retention | core | done |
+| top-level paths, retention, backup | core | done |
 | `models`, `budget` | models | done |
 | `sources`, `gate`, `redaction` | inputs | done |
 | `triage` | brain | done |
@@ -372,8 +378,8 @@ A module is "separate" when all of these are true:
 | 4. M4 triage inside `brain/`, `run --dry-run` | done |
 | 5. M5 reasoning and `outputs` queue | done |
 | 6. M6 consolidation and read-only GUI | done |
-| 7. M7 hardening | next |
+| 7. M7 hardening: startup, crash proof, encrypted backup, report, CI | done |
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 285-test suite is the safety net.
+the boundaries move; the 309-test suite is the safety net.

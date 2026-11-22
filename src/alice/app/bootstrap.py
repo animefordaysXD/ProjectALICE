@@ -10,6 +10,7 @@ from ..brain.consolidate import ConsolidationService
 from ..brain.reason import ReasoningService
 from ..brain.triage import TriageService
 from ..contracts.outputs import BudgetSnapshot
+from ..core.backup import BackupService
 from ..core.events import CursorStore, Ledger, RawStore
 from ..inputs import Sensor, build_sensors
 from ..inputs.gate import Gate
@@ -176,6 +177,10 @@ def build_consolidation(
         config=settings.brain.consolidation,
         retention=settings.core.retention,
     )
+
+
+def build_backup(settings: AppSettings, conn: sqlite3.Connection) -> BackupService:
+    return BackupService(conn, settings.data_dir, settings.core.backup)
 
 
 def build_digest(

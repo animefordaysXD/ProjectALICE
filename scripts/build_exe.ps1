@@ -6,7 +6,11 @@ Push-Location $root
 try {
     $python = Join-Path $root ".venv\Scripts\python.exe"
     if (-not (Test-Path $python)) {
-        throw "No venv found. Run: py -3.12 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e '.[dev]' pyinstaller"
+        $command = Get-Command python.exe -ErrorAction SilentlyContinue
+        if ($null -eq $command) {
+            throw "No venv found. Run: py -3.12 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e '.[dev]' pyinstaller"
+        }
+        $python = $command.Source
     }
     & $python -c "import PyInstaller" 2>$null
     if ($LASTEXITCODE -ne 0) {

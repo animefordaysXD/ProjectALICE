@@ -58,3 +58,9 @@ notify:
 retention:
   raw_payload_days: 14
   max_raw_mb: 50
+
+backup:
+  enabled: true
+  dir: backups
+  hour: 4
+  keep: 7

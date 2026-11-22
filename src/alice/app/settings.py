@@ -17,6 +17,7 @@ from ..core.config import (
     Retention,
     default_config_path,
     load_yaml,
+    parse_backup,
     parse_retention,
     reject_secrets,
     reject_unknown,
@@ -42,6 +43,7 @@ TOP_LEVEL = {
     "memory",
     "plugins",
     "consolidation",
+    "backup",
 }
 
 
@@ -135,6 +137,7 @@ def load_settings(
             data_dir=data_path,
             seed_dir=seed_dir,
             retention=parse_retention(raw.get("retention")),
+            backup=parse_backup(raw.get("backup"), data_path),
         ),
         models=parse_models(raw.get("models"), raw.get("budget")),
         inputs=parse_inputs(raw.get("sources"), raw.get("gate"), raw.get("redaction")),

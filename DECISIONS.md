@@ -644,7 +644,71 @@ only" line: the GUI cannot act on the computer or send anything.
 New coverage: consolidation grouping, hourly/daily summaries, proposals,
 idempotent reruns, retry and failure handling, raw pruning without ledger loss,
 configuration parsing, dashboard data, GUI module import, and a dry-run
-consolidation end to end. The suite is 285 tests.
+consolidation end to end. The suite was 285 tests at M6.
+
+## 2026-11-22 — M7 hardening
+
+### Encrypted backup: DPAPI, not a passphrase
+
+The backup is a ZIP with `alice.db`, `memory/core.json`, and a manifest,
+encrypted with Windows DPAPI (`CryptProtectData`) under an app-specific entropy
+value. This avoids inventing a password flow and avoids storing a symmetric key
+in config. The cost is portability: the `.alicebak` can only be restored by the
+same Windows user on the same machine (or a profile with migrated DPAPI master
+keys). That is acceptable for a local secretary whose threat model is "the file
+should not be readable by another account or after a disk copy".
+
+The database member is taken with SQLite's online backup API, not by copying the
+file. WAL mode means a plain copy can miss committed pages; the backup API
+produces a consistent snapshot while `alice run` may still be writing. Restore
+checks the ZIP structure, rejects `..`/absolute member paths, runs
+`PRAGMA integrity_check`, and only then replaces the target. It refuses to
+overwrite an existing database unless `--force` is passed.
+
+`backup_runs` records the local day, path, and size. The row is written after
+the file is durable. Pruning keeps the newest `backup.keep` files and deletes
+their rows; a backup therefore does not contain its own `backup_runs` row.
+
+### Logon start: Task Scheduler, not a service
+
+A service runs in session 0, where Windows toasts are not visible and DPAPI
+user context is different. The task therefore runs in the user's interactive
+session. It is hidden (`-WindowStyle Hidden`), starts at logon, and asks Task
+Scheduler to restart it three times at one-minute intervals after a failure.
+`alice startup --install/--remove/--status` manages it; the packaged build is
+required because the task points at `alice.exe`.
+
+### Crash recovery is an ordering guarantee
+
+`poll_once` commits each event, then advances the sensor cursor. A crash between
+those steps re-reads lines on restart; content hashes drop the duplicates, and
+no committed event is lost. This is not a new recovery mechanism; M7 adds a
+test that simulates the crash and a script that kills a real process twice.
+The script also checks that the cursor reaches EOF and `integrity_check` is
+`ok`. A crash after the ledger commit but before the cursor commit is the only
+ambiguous window, and dedupe covers it.
+
+### `alice report` is offline
+
+The report is rendered from `usage`, `events`, `suggestions`, and
+`budget_alerts` with SQL. It never calls a model, so a weekly report cannot
+spend money or leak data. On OpenCode Go, cost is always `$0.0000` because it is
+a subscription; token columns are the meaningful trend.
+
+### CI and release
+
+Actions run on `windows-latest` because DPAPI, Task Scheduler, and the Windows
+toast path are part of the test surface. The CI job runs the suite, the real
+kill/restart proof, builds both executables, and smoke-tests the packaged CLI
+(`init`, `status`, `backup`, `report`). A `v*` tag publishes the zip as a
+release asset. The GUI is not launched in CI because runners have no interactive
+desktop; it is covered by data tests and an import/start smoke test locally.
+
+### Tests
+
+M7 adds DPAPI roundtrip and tamper tests, backup create/skip/prune/restore,
+report rendering, Scheduled Task script generation, CLI backup/report, and a
+simulated crash between ledger and cursor. The suite is 309 tests.
 
 ## Open decisions carried forward
 
@@ -654,7 +718,7 @@ consolidation end to end. The suite is 285 tests.
 | 2 | Windows 11 toast library | M5 | decided: `win11toast`, lazy with queue fallback |
 | 3 | Multilingual embedding model | M3 | decided: model2vec `minishlab/potion-multilingual-128M`, 256d, CPU; recall@3 1.000 ko+en |
 | 4 | Real log paths and salience rules | M1 | paths open (Jo to provide); default rules shipped |
-| 5 | Encrypted backup destination | M7 | open |
+| 5 | Encrypted backup destination | M7 | decided: DPAPI, `%LOCALAPPDATA%\\Alice\\backups`, keep 7 days |
 
 ## 2026-11-21 — M2 router and budget
 

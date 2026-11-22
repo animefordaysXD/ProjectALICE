@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -19,6 +20,13 @@ from .. import __version__
 from ..brain.consolidate import ConsolidationResult
 from ..brain.reason import ReasoningResult
 from ..brain.triage import TriageResult
+from ..core.backup import (
+    BackupError,
+    BackupResult,
+    RestoreResult,
+    format_size,
+    restore_backup,
+)
 from ..core.config import ConfigError, default_config_path
 from ..core.db import (
     DatabaseError,
@@ -29,6 +37,12 @@ from ..core.db import (
 )
 from ..core.logging import setup_logging
 from ..core.paths import migrate_legacy_state, runtime_mode
+from ..core.startup import (
+    StartupError,
+    install_startup,
+    remove_startup,
+    startup_status,
+)
 from ..inputs import PollStats, poll_once
 from ..inputs.config import Source
 from ..memory.core_file import CoreMemory
@@ -38,7 +52,9 @@ from ..core.tokens import estimate_tokens
 from ..models.base import ProviderError, ProviderNotConfigured
 from ..models import RouterError
 from ..models.budget import BudgetError, BudgetGuard, clear_pause, pause_file, set_pause
+from ..outputs.report import render_report, write_report
 from .bootstrap import (
+    build_backup,
     build_consolidation,
     build_digest,
     build_ingestion,
@@ -80,6 +96,13 @@ def main(
     verbose: bool,
 ) -> None:
     """Alice: a local, read-only secretary agent. Phase 1 skeleton."""
+    # A model may return characters the Windows console code page cannot encode.
+    # Replace them instead of crashing the whole command.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     ctx.obj["data_dir"] = data_dir
@@ -207,6 +230,21 @@ def status(ctx: click.Context) -> None:
                         "consolidate",
                         f"last {row['day']}: {row['summary_count']} summaries, "
                         f"{row['proposal_count']} proposals",
+                    )
+                )
+        if state.version is not None and state.version >= 7:
+            row = conn.execute(
+                "SELECT day, path, size_bytes FROM backup_runs "
+                "ORDER BY day DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                click.echo(_line("backup", "none yet"))
+            else:
+                click.echo(
+                    _line(
+                        "backup",
+                        f"last {row['day']}: {row['path']} "
+                        f"({format_size(int(row['size_bytes']))})",
                     )
                 )
         click.echo(
@@ -411,6 +449,175 @@ def consolidate(ctx: click.Context, day_text: str | None, dry_run: bool) -> None
         conn.close()
 
 
+@main.command("backup")
+@click.option(
+    "--restore",
+    "restore_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Restore this .alicebak file instead of creating a backup.",
+)
+@click.option(
+    "--to",
+    "target",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Restore into this data directory (default: the configured one).",
+)
+@click.option("--force", is_flag=True, help="Replace an existing database on restore.")
+@click.option("--list", "list_only", is_flag=True, help="List local backup files.")
+@click.pass_context
+def backup_cmd(
+    ctx: click.Context,
+    restore_path: Path | None,
+    target: Path | None,
+    force: bool,
+    list_only: bool,
+) -> None:
+    """Create an encrypted backup, list backups, or restore one."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+
+    if restore_path is not None:
+        destination = target or config.data_dir
+        try:
+            restored = restore_backup(restore_path, destination, force=force)
+        except BackupError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _print_restore(restored)
+        return
+
+    if list_only:
+        files = (
+            sorted(
+                config.core.backup.dir.glob("alice-*.alicebak"),
+                key=lambda item: item.name,
+                reverse=True,
+            )
+            if config.core.backup.dir.is_dir()
+            else []
+        )
+        if not files:
+            click.echo(_line("backups", f"none in {config.core.backup.dir}"))
+            return
+        click.echo(_line("backups", f"{len(files)} in {config.core.backup.dir}"))
+        for path in files:
+            stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            click.echo(
+                _line("  file", f"{path.name}  {format_size(path.stat().st_size)}  {stamp}")
+            )
+        return
+
+    try:
+        state = database_status(config.db_path)
+    except DatabaseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not state.initialized:
+        raise click.ClickException(
+            f"database not initialized at {config.db_path}; run `alice init` first"
+        )
+    if state.pending:
+        raise click.ClickException("database has pending migrations; run `alice init` first")
+
+    conn = connect(config.db_path, create=False)
+    try:
+        service = build_backup(config, conn)
+        try:
+            result = service.run(force=True)
+        except BackupError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+    _print_backup(result)
+
+
+@main.command()
+@click.option(
+    "--days",
+    type=click.IntRange(1, 365),
+    default=7,
+    show_default=True,
+    help="How many days to include.",
+)
+@click.option("--write", is_flag=True, help="Write the report under reports/.")
+@click.pass_context
+def report(ctx: click.Context, days: int, write: bool) -> None:
+    """Show weekly cost and activity trends without calling a model."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    try:
+        state = database_status(config.db_path)
+    except DatabaseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not state.initialized:
+        raise click.ClickException(
+            f"database not initialized at {config.db_path}; run `alice init` first"
+        )
+    if state.pending:
+        raise click.ClickException("database has pending migrations; run `alice init` first")
+
+    conn = connect(config.db_path, create=False)
+    try:
+        if write:
+            result = write_report(conn, config.data_dir, days=days)
+            click.echo(
+                _line("report", f"{result.path} ({'created' if result.created else 'updated'})")
+            )
+        else:
+            click.echo(render_report(conn, days=days))
+    finally:
+        conn.close()
+
+
+@main.command()
+@click.option("--install", "action", flag_value="install", help="Register the logon task.")
+@click.option("--remove", "action", flag_value="remove", help="Remove the logon task.")
+@click.option(
+    "--status",
+    "action",
+    flag_value="status",
+    default="status",
+    help="Show whether the logon task exists (default).",
+)
+@click.option("--user", default=None, help="Windows user for the logon trigger.")
+@click.pass_context
+def startup(ctx: click.Context, action: str, user: str | None) -> None:
+    """Manage the hidden logon Scheduled Task."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    try:
+        if action == "install":
+            if not getattr(sys, "frozen", False):
+                raise click.ClickException(
+                    "install the packaged build, then run `alice startup --install` "
+                    "from that folder"
+                )
+            exe = Path(sys.executable)
+            configured = config.path
+            default = default_config_path().expanduser().resolve()
+            config_arg = None if configured == default else configured
+            status = install_startup(
+                exe, config_path=config_arg, user=user
+            )
+        elif action == "remove":
+            status = remove_startup()
+        else:
+            status = startup_status()
+    except StartupError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if action == "install":
+        click.echo(_line("startup", f"installed at logon ({status.task})"))
+    elif action == "remove":
+        click.echo(_line("startup", f"removed ({status.task})"))
+    else:
+        state = "installed" if status.installed else "not installed"
+        click.echo(_line("startup", f"{state} ({status.task}: {status.state})"))
+
+
 @main.command()
 @click.option("--once", is_flag=True, help="Poll every source once, ingest, triage, and exit.")
 @click.option(
@@ -459,6 +666,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     notifier = build_notifications(config, dry_run=dry_run)
     guard = BudgetGuard(conn, config.models.budget, config.data_dir)
     digest = build_digest(config, conn, guard)
+    backup = build_backup(config, conn)
     if not sensors:
         conn.close()
         raise click.ClickException(
@@ -468,6 +676,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     stats: PollStats | None = None
     last_triage = 0.0
     last_consolidation = 0.0
+    last_backup = 0.0
     triage_interval = max(1.0, config.brain.triage.interval_minutes * 60)
     try:
         for sensor in sensors:
@@ -537,6 +746,22 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                     if once and consolidation_result.ran:
                         _print_consolidation(consolidation_result)
                 last_consolidation = time.monotonic()
+
+            if (
+                config.core.backup.enabled
+                and local_now.hour >= config.core.backup.hour
+                and time.monotonic() - last_backup >= 3600
+            ):
+                try:
+                    backup_result = backup.run(now=local_now)
+                except BackupError as exc:
+                    logger.warning("backup skipped: %s", exc)
+                else:
+                    if once and backup_result.ran:
+                        _print_backup(backup_result)
+                    elif once:
+                        click.echo(_line("backup", backup_result.reason or "skipped"))
+                last_backup = time.monotonic()
 
             delivered = queue.deliver(notifier, config.outputs.notify)
             if once and delivered:
@@ -626,6 +851,29 @@ def _print_consolidation(result: ConsolidationResult) -> None:
     if result.error:
         detail += f" (error: {result.error})"
     click.echo(_line("consolidate", detail))
+
+
+def _print_backup(result: BackupResult) -> None:
+    if not result.ran or result.path is None:
+        click.echo(_line("backup", result.reason or "skipped"))
+        return
+    click.echo(
+        _line(
+            "backup",
+            f"{result.path} ({format_size(result.size_bytes)}); "
+            f"{result.kept} kept",
+        )
+    )
+
+
+def _print_restore(result: RestoreResult) -> None:
+    detail = (
+        f"{result.target} (schema v{result.schema}, "
+        f"{', '.join(result.files)})"
+    )
+    if result.day:
+        detail += f" from {result.day}"
+    click.echo(_line("restore", detail))
 
 
 def _print_poll(stats: PollStats, config: AppSettings, *, once: bool) -> None:
