@@ -18,6 +18,7 @@ from ..core.db import utc_now
 from ..core.events import Event, Ledger
 from ..core.tokens import estimate_tokens
 from .config import Triage
+from .json_output import OutputFormatError, extract_object
 from .prompts import REPAIR_INSTRUCTION, build_triage_messages
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,10 @@ class TriageService:
 
 
 def parse_decision(text: str) -> TriageDecision:
-    payload = _extract_object(text)
+    try:
+        payload = extract_object(text)
+    except OutputFormatError as exc:
+        raise TriageFormatError(str(exc)) from exc
     raw_decision = payload.get("decision")
     if not isinstance(raw_decision, str):
         raise TriageFormatError("decision must be a string")
@@ -230,22 +234,3 @@ def _optional_text(value: object, key: str) -> str | None:
         raise TriageFormatError(f"{key} must be a string or null")
     value = value.strip()
     return value or None
-
-
-def _extract_object(text: str) -> dict:
-    raw = text.strip()
-    if raw.startswith("```"):
-        parts = raw.split("\n", 1)
-        raw = parts[1] if len(parts) == 2 else ""
-        raw = raw.rstrip().rstrip("`").strip()
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start < 0 or end <= start:
-        raise TriageFormatError("reply did not contain a JSON object")
-    try:
-        payload = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise TriageFormatError(f"invalid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise TriageFormatError("reply must be a JSON object")
-    return payload

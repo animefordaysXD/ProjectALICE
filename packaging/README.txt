@@ -19,6 +19,7 @@ new build never deletes your ledger or memory:
       memory\core.json  editable core memory (identity, rules, facts)
       memory\seed\      identity.md, rules.md, facts.md
       cache\            embedding model cache
+      digests\          daily markdown digests
       opencode\         working folder for OpenCode calls
       paused.json       present only while model calls are paused
 
@@ -63,6 +64,9 @@ Notes
   Raw text stays in the data folder when redaction changed it.
 - OpenCode Go is a subscription, so calls report $0. Token usage is still
   logged. Budget caps still apply to metered providers.
+- Suggestions appear in a daily markdown digest under digests\. Toasts use
+  win11toast; if Windows notifications are disabled, suggestions stay queued and
+  the digest still works.
 - Alice automatically moves an old `state` folder from this app directory into
   the per-user data folder on first start. If both already contain data, it
   leaves the old folder alone and logs a warning.

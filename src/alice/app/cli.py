@@ -16,6 +16,7 @@ from pathlib import Path
 import click
 
 from .. import __version__
+from ..brain.reason import ReasoningResult
 from ..brain.triage import TriageResult
 from ..core.config import ConfigError, default_config_path
 from ..core.db import (
@@ -36,7 +37,16 @@ from ..core.tokens import estimate_tokens
 from ..models.base import ProviderError, ProviderNotConfigured
 from ..models import RouterError
 from ..models.budget import BudgetError, BudgetGuard, clear_pause, pause_file, set_pause
-from .bootstrap import build_ingestion, build_memory, build_models, build_triage
+from .bootstrap import (
+    build_digest,
+    build_ingestion,
+    build_memory,
+    build_models,
+    build_notifications,
+    build_queue,
+    build_reasoning,
+    build_triage,
+)
 from .settings import AppSettings, load_settings
 
 logger = logging.getLogger(__name__)
@@ -162,6 +172,26 @@ def status(ctx: click.Context) -> None:
             )
             batches = _scalar(conn, "SELECT COUNT(*) FROM triage_batches", ())
             click.echo(_line("triage", f"{new_above} new above gate, {batches} batches"))
+        if state.version is not None and state.version >= 5:
+            pending_reason = _scalar(
+                conn,
+                "SELECT COUNT(*) FROM triage_batches WHERE decision = 'escalate' "
+                "AND reasoned_at IS NULL",
+                (),
+            )
+            click.echo(_line("reasoning", f"{pending_reason} escalations pending"))
+            digest_path = (
+                config.data_dir
+                / "digests"
+                / f"{datetime.now().astimezone().date().isoformat()}.md"
+            )
+            click.echo(
+                _line(
+                    "digest",
+                    f"{digest_path} "
+                    f"({'present' if digest_path.is_file() else 'not written yet'})",
+                )
+            )
         click.echo(
             _line(
                 "tasks",
@@ -348,6 +378,11 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     except (ProviderNotConfigured, RouterError) as exc:
         conn.close()
         raise click.ClickException(str(exc)) from exc
+    queue = build_queue(conn)
+    reasoning = build_reasoning(config, conn, router, memory, queue)
+    notifier = build_notifications(config, dry_run=dry_run)
+    guard = BudgetGuard(conn, config.models.budget, config.data_dir)
+    digest = build_digest(config, conn, guard)
     if not sensors:
         conn.close()
         raise click.ClickException(
@@ -390,6 +425,32 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                             f"decision={decision}"
                         )
                 last_triage = now
+
+            for _ in range(min(6, max(1, config.models.budget.max_escalations_per_hour))):
+                try:
+                    reasoning_result = reasoning.run_once()
+                except (BudgetError, ProviderError) as exc:
+                    logger.warning("reasoning call blocked: %s", exc)
+                    if once:
+                        raise click.ClickException(str(exc)) from exc
+                    break
+                if not reasoning_result.ran:
+                    break
+                if once:
+                    _print_reasoning(reasoning_result)
+                else:
+                    click.echo(
+                        f"{datetime.now():%H:%M:%S} reasoning batch="
+                        f"{reasoning_result.batch_id} suggestions="
+                        f"{reasoning_result.suggestions}"
+                    )
+
+            delivered = queue.deliver(notifier, config.outputs.notify)
+            if once and delivered:
+                click.echo(_line("toasts", str(delivered)))
+            digest_result = digest.write(notifier=notifier)
+            if once:
+                _print_digest(digest_result)
 
             if once:
                 break
@@ -438,6 +499,28 @@ def _print_triage(result: TriageResult) -> None:
     )
     if decision.suggestion_text:
         click.echo(_line("suggestion", decision.suggestion_text))
+
+
+def _print_reasoning(result: ReasoningResult) -> None:
+    if not result.ran:
+        return
+    if result.error:
+        click.echo(_line("reasoning", f"failed: {result.error}"))
+        return
+    heavy = " heavy" if result.used_heavy else ""
+    click.echo(
+        _line(
+            "reasoning",
+            f"batch {result.batch_id} -> {result.suggestions} suggestions{heavy}",
+        )
+    )
+
+
+def _print_digest(result) -> None:
+    state = "created" if result.created else "updated"
+    click.echo(_line("digest", f"{result.path} ({state})"))
+    if result.notified:
+        click.echo(_line("toast", result.summary))
 
 
 def _print_poll(stats: PollStats, config: AppSettings, *, once: bool) -> None:

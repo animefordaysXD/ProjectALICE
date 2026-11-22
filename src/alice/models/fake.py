@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .base import Completion, Message, Provider, ProviderError
 
@@ -36,9 +36,11 @@ class FakeProvider(Provider):
         *,
         fail_times: int = 0,
         default_response: str = "fake ok",
+        responses_by_model: Mapping[str, str] | None = None,
     ) -> None:
         self._responses = list(responses or [])
         self._default = default_response
+        self._by_model = dict(responses_by_model or {})
         self.fail_times = fail_times
         self.calls: list[FakeCall] = []
 
@@ -63,7 +65,9 @@ class FakeProvider(Provider):
             self.fail_times -= 1
             raise ProviderError("simulated transient failure", transient=True)
 
-        text = self._responses.pop(0) if self._responses else self._default
+        text = self._by_model.get(model)
+        if text is None:
+            text = self._responses.pop(0) if self._responses else self._default
         prompt = "".join(message.content for message in messages)
         return Completion(
             text=text,

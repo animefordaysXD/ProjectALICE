@@ -98,15 +98,17 @@ src/alice/
   brain/                   what Alice decides
     __init__.py
     config.py              triage timing
-    prompts.py             static prefix, hard memory, observed events
+    json_output.py         JSON object extraction
+    prompts.py             prompts for triage and reasoning
     triage.py              Tier 1 batching and decisions
-    reason.py              (M5) Tier 2
+    reason.py              Tier 2 escalation reasoning
     consolidate.py         (M6) Tier 3
   outputs/                 how Alice tells Jo
     __init__.py
-    queue.py               (M5) suggestion queue
-    digest.py              (M5) daily markdown
-    notify.py              (M5) Windows toast
+    config.py              notify mode, quiet hours, toast limits
+    queue.py               suggestion queue and throttling
+    digest.py              daily markdown and summary toast
+    notify.py              Windows toast adapter
   plugins/                 optional extensions
     __init__.py
     registry.py            explicit built-in registry, no disk loading
@@ -205,9 +207,10 @@ it receives a `ModelRouter` protocol.
 
 Everything Jo sees.
 
-- Suggestion queue, throttling, quiet hours.
-- Daily digest markdown.
-- Windows toast adapter.
+- Suggestion queue, quiet hours, hourly toast cap, priority threshold.
+- Daily digest markdown plus one summary toast.
+- Windows toast adapter (`win11toast`, lazy).
+- Budget alerts supplied by an injected `BudgetSnapshot`; no import of `models`.
 
 Owns table: `suggestions`.
 Config section: `notify`.
@@ -261,6 +264,7 @@ SQL.
 | `memory_embeddings` | memory | memory | memory |
 | `triage_batches` | brain | brain | brain |
 | `suggestions` | outputs | outputs | outputs |
+| `budget_alerts` | models | models | models/status/digest |
 | `usage` | models | models | budget/status |
 
 Modules may create their own additional tables only by adding a migration in
@@ -356,8 +360,9 @@ A module is "separate" when all of these are true:
 | 2. Split config parsing per module | done |
 | 3. M3 memory implementation inside `memory/` | done |
 | 4. M4 triage inside `brain/`, `run --dry-run` | done |
-| 5. M5 reasoning and `outputs` queue | next |
-| 6. Optional extraction of a module into its own distribution | only if needed |
+| 5. M5 reasoning and `outputs` queue | done |
+| 6. M6 consolidation, then M7 hardening | next |
+| 7. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 195-test suite is the safety net.
+the boundaries move; the 273-test suite is the safety net.

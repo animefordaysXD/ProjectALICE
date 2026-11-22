@@ -528,12 +528,78 @@ status mapping, invalid→valid retry, invalid twice, batch token caps, prompt
 prefix stability, and a 200-event replay with multiple batches. The dry-run
 end-to-end path is covered in `tests/test_app_run.py`.
 
+## 2026-11-22 — M5 reasoning and output
+
+### One escalation at a time
+
+`ReasoningService` picks the oldest `triage_batches` row with
+`decision='escalate'` and no `reasoned_at`. It respects
+`budget.max_escalations_per_hour` by counting batches reasoned in the last hour.
+It creates a fast-memory task with the batch id and event ids, recalls context
+using the triage recall hint (or the first event text), and calls the `reason`
+tier with the stable system+hard-memory prefix, the task block, retrieved
+memory, and the escalated events.
+
+Successful reasoning queues 0–3 suggestions, marks the events `done`, sets
+`reasoned_at`, and completes the task with an outcome. A malformed reply gets
+one repair retry; a second failure leaves the batch pending and increments
+`reason_attempts`. The task is completed either way, so no orphan task is left.
+
+### Heavy is an explicit exception
+
+The reasoning reply may set `needs_heavy`. Only then is the `heavy` tier called,
+and only while `budget.max_heavy_per_day` is not exhausted. Heavy usage is read
+from the `usage` table through an injected callable, so `brain` does not import
+`models`. Failure of the heavy call falls back to the reason result.
+
+### Output delivery
+
+- Suggestions are stored in `suggestions` with `reason`, `source_event_ids`,
+  `shown_at`, and `status`.
+- `SuggestionQueue.deliver()` enforces `notify.quiet_hours` in local time,
+  `max_toasts_per_hour`, and `min_toast_priority`. A failed toast leaves the
+  suggestion queued.
+- `DigestWriter` writes `<data>/digests/YYYY-MM-DD.md`, with activity counts,
+  suggestions, budget status, pending proposals, and budget alerts.
+- The first digest write of the local day sends one summary toast, unless it is
+  quiet hours. Later writes only update the file.
+- `notify.mode` controls digest-only, toast-only, or both.
+
+### Toast library
+
+Chosen: `win11toast` (MIT), lazily imported. It targets Windows 10/11 and needs
+no custom AppUserModelID setup. If the import or delivery fails, the notifier
+returns False and suggestions remain queued; the digest still works. This
+resolves OPEN #2.
+
+### Budget alerts
+
+Blocked calls are inserted into `budget_alerts` before the `BudgetError` is
+raised. The digest reads a `BudgetSnapshot` containing the alert reasons, so a
+refused call is visible the next time Jo looks, not only in the terminal that
+happened to trigger it. `outputs` never imports `models`; `app` builds the
+snapshot.
+
+### Dry run
+
+The dry-run fake provider is keyed by model name: triage models return a valid
+escalation, reason/heavy models return a valid suggestion. That exercises the
+full escalation → reasoning → queue → digest path without network calls. The
+dry-run notifier is a no-op, so it never pops a toast.
+
+### Tests
+
+`test_brain_reason.py`, `test_outputs_queue.py`, and
+`test_outputs_digest.py` cover no-escalation/no-call, suggestion queuing,
+status transitions, retries, hourly/heavy limits, quiet hours, toast throttling,
+failed delivery, and digest content. The full suite is 273 tests.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |
 | --- | --- | --- | --- |
 | 1 | First real messaging source | M1 | decided: read-only email; stub only in Phase 1 |
-| 2 | Windows 11 toast library | M5 | open |
+| 2 | Windows 11 toast library | M5 | decided: `win11toast`, lazy with queue fallback |
 | 3 | Multilingual embedding model | M3 | decided: model2vec `minishlab/potion-multilingual-128M`, 256d, CPU; recall@3 1.000 ko+en |
 | 4 | Real log paths and salience rules | M1 | paths open (Jo to provide); default rules shipped |
 | 5 | Encrypted backup destination | M7 | open |

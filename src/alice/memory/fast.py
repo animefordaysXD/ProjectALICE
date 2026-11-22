@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
 
+from ..contracts.memory import Task
 from ..core.events import Ledger
 from .errors import ProposalError
 
@@ -21,16 +21,6 @@ def _utc() -> datetime:
 
 def _iso(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-@dataclass(frozen=True)
-class Task:
-    id: int
-    goal: str
-    state: Mapping[str, Any]
-    status: str
-    created: str
-    expires: str
 
 
 class FastMemory:

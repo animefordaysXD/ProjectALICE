@@ -1,21 +1,24 @@
-# outputs
+## Outputs and delivery
 
-Everything Jo sees. Deliver only; never decide.
+Implemented:
 
-Planned (M5):
+- `queue.py`: suggestion queue, quiet hours, hourly toast cap, priority
+  threshold. Failed toasts stay queued.
+- `digest.py`: daily markdown digest at `<data>/digests/YYYY-MM-DD.md`, one
+  summary toast on first write, budget alerts, pending proposals.
+- `notify.py`: lazy `win11toast` delivery with a no-op fallback.
 
-- `queue.py`: suggestion queue, quiet hours, toast throttling.
-- `digest.py`: daily markdown with one summary toast.
-- `notify.py`: Windows toast adapter.
-
-Owns table: `suggestions`.
+Owns table: `suggestions` (including `shown_at` and `reason`).
 Owns config: `notify`.
-Depends on: `contracts`, `core`.
+
+Reads budget alerts through an injected `BudgetSnapshot`; it does not import
+`models`.
 
 Rules:
 
-- Delivery failure is logged and reported, never silent.
-- Quiet hours and rate limits are enforced here, not in the brain.
-- A suggestion keeps its `source_event_ids`.
+- Never decide that something is important; only deliver.
+- Quiet hours and throttles are enforced here.
+- Delivery failure is logged and the suggestion remains queued.
+- The digest always works even when toasts do not.
 
-Tests: `pytest tests/test_outputs_*.py` (M5).
+Tests: `pytest tests/test_outputs_*.py`.

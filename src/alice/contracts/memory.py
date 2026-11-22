@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 MEMORY_KINDS = ("hard", "task", "summary", "event")
 
@@ -48,3 +48,23 @@ class Embedder(Protocol):
     dimension: int
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+@dataclass(frozen=True)
+class Task:
+    id: int
+    goal: str
+    state: Mapping[str, Any]
+    status: str
+    created: str
+    expires: str
+
+
+class TaskStore(Protocol):
+    def create(
+        self, goal: str, state: Mapping[str, Any] | None = None
+    ) -> Task: ...
+
+    def update_state(self, task_id: int, update: Mapping[str, Any]) -> Task: ...
+
+    def complete(self, task_id: int, outcome: str) -> Task | None: ...

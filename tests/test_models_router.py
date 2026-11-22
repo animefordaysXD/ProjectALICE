@@ -166,6 +166,13 @@ def test_hard_cap_blocks_before_the_provider_is_called(
         router.complete("triage", [Message("user", "hi")], 10)
 
     assert fake.calls == []
+    alert = conn.execute("SELECT * FROM budget_alerts").fetchone()
+    assert alert is not None
+    assert "hard daily cap" in alert["reason"]
+    assert any(
+        "hard daily cap" in message
+        for message in make_guard(conn, tmp_path).alerts_since("2000-01-01T00:00:00Z")
+    )
 
 
 def test_estimated_cost_can_block_a_call(

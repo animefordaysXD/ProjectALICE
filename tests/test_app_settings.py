@@ -24,6 +24,7 @@ def test_repo_config_loads() -> None:
     assert config.budget.hard_daily_usd == 2.50
     assert config.triage.interval_minutes == 5
     assert config.notify.quiet_hours == "22:00-08:00"
+    assert config.notify.min_toast_priority == 2
     assert [source.type for source in config.sources] == ["logfile", "message"]
     assert config.retention.raw_payload_days == 14
     assert config.retention.max_raw_mb == 50

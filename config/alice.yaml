@@ -68,6 +68,7 @@ notify:
   mode: digest+toast
   quiet_hours: '22:00-08:00'
   max_toasts_per_hour: 3
+  min_toast_priority: 2
 
 retention:
   raw_payload_days: 14

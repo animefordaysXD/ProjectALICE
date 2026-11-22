@@ -111,6 +111,16 @@ class Ledger:
         ).fetchall()
         return [Event.from_row(row) for row in rows]
 
+    def by_ids(self, event_ids: list[int]) -> list[Event]:
+        if not event_ids:
+            return []
+        placeholders = ",".join("?" for _ in event_ids)
+        rows = self.conn.execute(
+            f"SELECT * FROM events WHERE id IN ({placeholders}) ORDER BY ts, id",
+            event_ids,
+        ).fetchall()
+        return [Event.from_row(row) for row in rows]
+
     def mark_status(self, event_ids: list[int], status: str) -> None:
         if not event_ids:
             return

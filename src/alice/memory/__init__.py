@@ -2,6 +2,7 @@
 
 from .config import EmbeddingConfig, MemoryConfig
 from .core_file import CoreMemory
+from ..contracts.memory import Task
 from .errors import (
     ArchiveError,
     CoreMemoryError,
@@ -9,7 +10,7 @@ from .errors import (
     MemoryErrorBase,
     ProposalError,
 )
-from .fast import FastMemory, Task
+from .fast import FastMemory
 from .hard import ApprovedEntry, HardMemory, Proposal
 from .service import MemoryService
 from ..core.tokens import estimate_tokens

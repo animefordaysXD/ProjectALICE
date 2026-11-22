@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -159,8 +160,11 @@ def test_dry_run_triages_and_updates_the_ledger(tmp_path: Path) -> None:
     try:
         assert conn.execute("SELECT COUNT(*) FROM triage_batches").fetchone()[0] == 1
         assert conn.execute(
-            "SELECT COUNT(*) FROM events WHERE status = 'triaged'"
+            "SELECT COUNT(*) FROM events WHERE status = 'done'"
         ).fetchone()[0] > 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM suggestions WHERE status = 'queued'"
+        ).fetchone()[0] == 1
         assert conn.execute(
             "SELECT COUNT(*) FROM events WHERE status = 'new' AND salience >= 0.5"
         ).fetchone()[0] == 0
@@ -169,6 +173,10 @@ def test_dry_run_triages_and_updates_the_ledger(tmp_path: Path) -> None:
         ).fetchone()[0] > 0
     finally:
         conn.close()
+
+    digest = root / "state" / "digests" / f"{datetime.now().astimezone().date().isoformat()}.md"
+    assert digest.is_file()
+    assert "Dry run suggestion" in digest.read_text(encoding="utf-8")
 
 
 def test_run_requires_an_initialized_database(tmp_path: Path) -> None:

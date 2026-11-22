@@ -151,11 +151,19 @@ class UsageLog:
     def spend_since(self, since: str) -> float:
         return self.totals_since(since)[1]
 
+    def count_since(self, tier: str, since: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM usage WHERE tier = ? AND ts >= ?",
+            (tier, since),
+        ).fetchone()
+        return int(row[0])
+
 
 class BudgetGuard:
     def __init__(
         self, conn: sqlite3.Connection, budget: Budget, data_dir: Path | str
     ) -> None:
+        self.conn = conn
         self.usage = UsageLog(conn)
         self.budget = budget
         self.data_dir = Path(data_dir)
@@ -184,27 +192,53 @@ class BudgetGuard:
         """Refuse a call that would violate the kill switch or hard cap."""
         paused = self.paused()
         if paused is not None:
-            raise BudgetError(
+            message = (
                 f"model calls are paused since {paused.since} ({paused.reason}); "
                 "run `alice resume` to allow them"
             )
+            self._alert(tier, message)
+            raise BudgetError(message)
 
         spend = self.usage.spend_since(day_start())
         hard = self.budget.hard_daily_usd
         if spend >= hard:
-            raise BudgetError(
+            message = (
                 f"hard daily cap reached for tier '{tier}': ${spend:.4f} of ${hard:.2f}; "
                 "calls are blocked until 00:00 UTC"
             )
+            self._alert(tier, message)
+            raise BudgetError(message)
         if spend + estimated_usd > hard:
-            raise BudgetError(
+            message = (
                 f"tier '{tier}' call refused: ${spend:.4f} spent + "
                 f"${estimated_usd:.4f} estimated would exceed the ${hard:.2f} hard cap"
             )
+            self._alert(tier, message)
+            raise BudgetError(message)
         self._warn_soft(spend)
 
     def note_spend(self, amount: float) -> None:
         self._warn_soft(self.usage.spend_since(day_start()))
+
+    def alerts_since(self, since: str) -> tuple[str, ...]:
+        try:
+            rows = self.conn.execute(
+                "SELECT reason FROM budget_alerts WHERE ts >= ? ORDER BY ts",
+                (since,),
+            ).fetchall()
+        except sqlite3.Error:
+            return ()
+        return tuple(str(row[0]) for row in rows)
+
+    def _alert(self, tier: str, message: str) -> None:
+        try:
+            self.conn.execute(
+                "INSERT INTO budget_alerts (ts, tier, reason) VALUES (?, ?, ?)",
+                (utc_now(), tier, message),
+            )
+            self.conn.commit()
+        except sqlite3.Error:
+            logger.exception("could not record budget alert")
 
     def _warn_soft(self, spend: float) -> None:
         if spend < self.budget.soft_daily_usd:

@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M4 complete. M5 reasoning and output is next. 256 tests pass.
+**Status:** M0-M5 complete. M6 consolidation is next. 273 tests pass.
 
 ---
 
@@ -77,6 +77,9 @@ Nightly work (next milestone) consolidates the day.
 | Memory | Editable JSON core memory, versioned approved facts, task scratchpad with TTL, FTS + sqlite-vec recall |
 | Embeddings | Local CPU multilingual embeddings (`potion-multilingual-128M`, 256d) |
 | Triage | Batched Tier 1, strict JSON decisions, one retry, ledger status updates, `--dry-run` |
+| Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
+| Output | Suggestion queue, quiet hours, hourly toast cap, priority threshold, daily markdown digest |
+| Alerts | Budget refusals recorded and shown in the digest |
 | CLI | `init`, `run`, `status`, `pause`, `resume`, `approve` |
 | Packaging | Single-file `alice.exe`, portable folder, zip, setup shortcuts |
 
@@ -243,6 +246,7 @@ notify:
   mode: digest+toast
   quiet_hours: '22:00-08:00'
   max_toasts_per_hour: 3
+  min_toast_priority: 2
 
 retention:
   raw_payload_days: 14
@@ -256,6 +260,46 @@ Model names live only in this file. Every config section has one owner parser
 under its module; `app/settings.py` composes them.
 
 ---
+
+## Reasoning and output
+
+Escalated batches are picked up by Tier 2, one at a time. Alice creates a
+fast-memory task, recalls context from the archive (using the triage recall
+hint when present), and calls the `reason` tier with the same stable prefix plus
+the task, retrieved memories, and the escalated events. A valid reply is:
+
+```json
+{
+  "assessment": "1-3 sentences",
+  "suggestions": [
+    {"text": "one concrete suggestion", "priority": 2, "reason": "why"}
+  ],
+  "needs_heavy": false
+}
+```
+
+Zero to three suggestions are allowed. A malformed reply is retried once; a
+failure leaves the escalation pending and records the task outcome. Successful
+reasoning marks the events `done`, stores the batch as reasoned, and queues the
+suggestions.
+
+`needs_heavy` is the only way to use the `heavy` tier. It is refused when
+`budget.max_heavy_per_day` is exhausted, and reasoning itself respects
+`budget.max_escalations_per_hour`.
+
+### Delivery
+
+- The queue enforces quiet hours, a maximum number of toasts per hour, and
+  `notify.min_toast_priority`.
+- Quiet hours use local time and support overnight ranges.
+- A failed toast leaves the suggestion queued; it is never lost.
+- Everything appears in a daily markdown digest at
+  `<data>/digests/YYYY-MM-DD.md`, with one summary toast on the first write of
+  the day.
+- Budget refusals are recorded in `budget_alerts` and shown in the digest, so a
+  blocked call is never silent.
+- Toast delivery uses `win11toast`; if it is unavailable, suggestions stay
+  queued and the digest still works.
 
 ## Memory
 
@@ -436,7 +480,7 @@ before opening the database. It never merges two non-empty stores; it warns and
 leaves the old folder in place instead.
 
 The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
-`memory/seed/`, `cache/`, `opencode/`, and `paused.json`.
+`memory/seed/`, `cache/`, `digests/`, `opencode/`, and `paused.json`.
 
 ### Table ownership
 
@@ -451,7 +495,8 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 | `summaries` | memory | memory |
 | `memory_embeddings` | memory | memory |
 | `triage_batches` | brain | brain |
-| `suggestions` | outputs | outputs (M5) |
+| `suggestions` | outputs | outputs |
+| `budget_alerts` | models | models |
 | `usage` | models | models |
 
 ### Privacy rules
@@ -497,7 +542,7 @@ screen, and `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`.
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-256 tests cover:
+273 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -541,7 +586,7 @@ alice/
     memory/                core JSON, hard/fast/archive, embeddings, recall
     models/                providers, router, budget, usage
     brain/                 prompts, triage, future reasoning/consolidation
-    outputs/               suggestion queue/digest/toasts (M5)
+    outputs/               suggestion queue, digest, toasts
     plugins/               explicit registry and capability policy
     app/                   CLI, settings, composition root
   tests/                   offline tests and fixtures
@@ -561,25 +606,15 @@ test command.
 | M2 | Router and budget: providers, usage log, caps, `pause` | done |
 | M3 | Memory: core JSON, hard/fast/archive, embeddings, `approve` | done |
 | M4 | Triage: batches, prompt prefix, validated decisions, dry run | done |
-| M5 | Reasoning and output: escalations, suggestions, throttle, digest, toasts | next |
-| M6 | Consolidation: nightly summaries, proposals, raw pruning | planned |
+| M5 | Reasoning and output: escalations, suggestions, throttle, digest, toasts | done |
+| M6 | Consolidation: nightly summaries, proposals, raw pruning | next |
 | M7 | Hardening: logon start, crash recovery, encrypted backup, cost report | planned |
 
 ---
 
 ## Future plans
 
-### M5 — Reasoning and output (next)
-
-- Turn `escalate` triage batches into fast-memory tasks.
-- Call Tier 2 (`reason`) with recalled context from `recall()`.
-- Produce suggestions with source event IDs; never act.
-- Add the `outputs` queue: priority threshold, quiet hours, max toasts/hour.
-- Write a daily markdown digest plus one summary toast.
-- Implement `alice report` for weekly cost review.
-- Add a budget alert to the digest so blocked calls are never silent.
-
-### M6 — Consolidation
+### M6 — Consolidation (next)
 
 - Nightly job: roll events into hourly and daily summaries.
 - Cheapest model tier, batched, using summaries not raw logs.
@@ -625,7 +660,12 @@ test command.
   memory service.
 - `memory/seed/*.md` remain as templates; the active core memory is
   `memory/core.json`.
-- Triage decisions are stored, but suggestions are not delivered until M5.
+- Toast delivery depends on `win11toast` and Windows notifications being
+  enabled. Failures leave suggestions queued for the digest.
+- The digest is regenerated on each poll; the summary toast is sent only on the
+  first write of the local day, and not during quiet hours.
+- The heavy tier is capped per day and only used when reasoning sets
+  `needs_heavy`; no automatic escalation to heavy exists yet.
 - No CI or license file is present yet.
 
 ---

@@ -18,6 +18,8 @@ try {
         --hidden-import anthropic `
         --collect-all sqlite_vec `
         --collect-all model2vec `
+        --collect-all win11toast `
+        --hidden-import win11toast `
         --add-data "src/alice/core/migrations;alice/core/migrations" `
         src/alice/__main__.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
