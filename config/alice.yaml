@@ -1,0 +1,74 @@
+# Alice configuration.
+# Secrets never belong in this file. API keys come from environment variables
+# or Windows Credential Manager (wired up in M2).
+#
+# Paths in `sources` are examples. Jo will provide the real log paths.
+
+models:
+  # Alice currently delegates to OpenCode Go through the OpenCode desktop CLI.
+  # The desktop app must be installed and signed in. Model names live here only;
+  # swap providers by editing this block.
+  triage:      {provider: opencode, model: opencode-go/deepseek-v4.1-flash}
+  reason:      {provider: opencode, model: opencode-go/deepseek-v4-pro}
+  heavy:       {provider: opencode, model: opencode-go/kimi-k3.1-pro}
+  consolidate: {provider: opencode, model: opencode-go/glm-5.3-flash, batch: true}
+
+  # Direct Anthropic alternative. Needs ANTHROPIC_API_KEY and explicit pricing.
+  # triage:
+  #   provider: anthropic
+  #   model: claude-haiku-5-5
+  #   pricing: {input_per_mtok: 1.00, output_per_mtok: 5.00, cached_input_per_mtok: 0.10}
+
+budget:
+  soft_daily_usd: 1.00
+  hard_daily_usd: 2.50
+  max_escalations_per_hour: 6
+  max_heavy_per_day: 3
+
+triage:
+  interval_minutes: 5
+  max_batch_tokens: 3000
+
+memory:
+  # Editable core memory, relative to the data directory.
+  core_memory_file: './memory/core.json'
+  hard_max_tokens: 2000
+  task_ttl_hours: 48
+  recall_budget_tokens: 1000
+  recall_k: 5
+  embedding:
+    model: minishlab/potion-multilingual-128M
+    dimension: 256
+
+plugins:
+  enabled: []
+
+sources:
+  # `from_start: true` backfills an existing file. Default tails from the end.
+  - {type: logfile, path: 'C:/path/to/logs', glob: '*.log'}
+  # The message stub reads any local file, one message per line.
+  - {type: message, adapter: stub, path: 'C:/path/to/messages.txt'}
+
+gate:
+  min_salience: 0.5
+  novelty_window_hours: 24
+  source_weights: {logfile: 1.0, message: 1.2}
+  # Rules replace the built-in list when present. Built-in defaults live in
+  # src/alice/config.py (DEFAULT_SALIENCE_RULES).
+  # rules:
+  #   - {name: error, pattern: '(?i)\b(error|failed|exception)\b', weight: 0.6}
+
+redaction:
+  # Extra patterns beyond the built-ins (RRN, phone, card, account, email).
+  # Each match is replaced with [NAME]. `name` must be UPPER_SNAKE_CASE.
+  patterns:
+    - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
+
+notify:
+  mode: digest+toast
+  quiet_hours: '22:00-08:00'
+  max_toasts_per_hour: 3
+
+retention:
+  raw_payload_days: 14
+  max_raw_mb: 50

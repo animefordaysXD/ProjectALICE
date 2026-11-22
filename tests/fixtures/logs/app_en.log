@@ -1,0 +1,9 @@
+2026-11-20T08:15:02Z INFO service started pid=4821
+2026-11-20T08:15:07Z WARN disk usage at 81% on C:\
+2026-11-20T08:16:11Z INFO user=jane.doe@example.com logged in from 10.0.0.14
+2026-11-20T08:17:31Z ERROR payment failed for card 4111-1111-1111-1111
+2026-11-20T08:17:31Z INFO order 1001 retried
+2026-11-20T08:17:33Z ERROR payment failed for card 4111-1111-1111-1111
+2026-11-20T08:18:00Z INFO order 1002 retried
+2026-11-20T08:19:45Z INFO contact 010-2345-6789
+2026-11-20T08:20:10Z INFO reached john.smith@example.org

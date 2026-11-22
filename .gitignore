@@ -1,0 +1,15 @@
+# Runtime state (database, logs, raw payloads)
+state/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+*.spec
+
+# Local overrides
+config/alice.local.yaml

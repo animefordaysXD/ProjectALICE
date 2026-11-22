@@ -1,0 +1,25 @@
+{
+  "model": "minishlab/potion-multilingual-128M",
+  "pairs": [
+    {"lang": "ko", "query": "배포 실패 원인", "doc": "배포 중 데이터베이스 연결 오류가 발생했습니다"},
+    {"lang": "ko", "query": "디스크 공간 부족", "doc": "C 드라이브 여유 공간이 2GB 남았습니다"},
+    {"lang": "ko", "query": "주민번호 마스킹", "doc": "개인정보 보호를 위해 주민등록번호를 가렸습니다"},
+    {"lang": "ko", "query": "회의 일정", "doc": "내일 오후 3시에 프로젝트 회의가 있습니다"},
+    {"lang": "ko", "query": "결제 오류", "doc": "카드 결제가 거부되었습니다"},
+    {"lang": "ko", "query": "서버 재시작", "doc": "서비스 프로세스를 다시 시작했습니다"},
+    {"lang": "ko", "query": "백업 정책", "doc": "매일 자정에 암호화 백업을 만듭니다"},
+    {"lang": "ko", "query": "로그 보관 기간", "doc": "원본 로그는 14일 후 삭제됩니다"},
+    {"lang": "ko", "query": "번역 품질", "doc": "한국어와 영어 검색 결과를 비교했습니다"},
+    {"lang": "ko", "query": "비용 한도", "doc": "하루 지출이 2.50달러를 넘으면 호출을 중단합니다"},
+    {"lang": "en", "query": "deployment failure cause", "doc": "the deployment failed because the database connection dropped"},
+    {"lang": "en", "query": "disk space low", "doc": "the C drive has only 2GB of free space left"},
+    {"lang": "en", "query": "mask personal data", "doc": "resident registration numbers are replaced before storage"},
+    {"lang": "en", "query": "meeting schedule", "doc": "the project meeting is tomorrow at 3 pm"},
+    {"lang": "en", "query": "payment declined", "doc": "the card payment was rejected by the provider"},
+    {"lang": "en", "query": "restart the server", "doc": "the service process was started again"},
+    {"lang": "en", "query": "backup policy", "doc": "an encrypted backup runs every night at midnight"},
+    {"lang": "en", "query": "log retention", "doc": "raw logs are deleted after fourteen days"},
+    {"lang": "en", "query": "translation quality", "doc": "we compared Korean and English retrieval results"},
+    {"lang": "en", "query": "spending limit", "doc": "calls stop when daily spend exceeds two dollars fifty"}
+  ]
+}

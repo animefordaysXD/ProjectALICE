@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alice"
+version = "0.1.0"
+description = "Alice: a local, suggest-only secretary agent for Windows (Phase 1 skeleton)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40",
+    "click>=8.1",
+    "model2vec>=0.10",
+    "PyYAML>=6.0",
+    "sqlite-vec>=0.1.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.0"]
+
+[project.scripts]
+alice = "alice.app.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+alice = ["core/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
