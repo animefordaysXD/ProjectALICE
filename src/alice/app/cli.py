@@ -45,6 +45,7 @@ from ..core.startup import (
 )
 from ..inputs import PollStats, poll_once
 from ..inputs.config import Source
+from ..inputs.sensors.logscan import coerce_globs, discover_log_files
 from ..memory.core_file import CoreMemory
 from ..memory.errors import CoreMemoryError, MemoryCapError, ProposalError
 from ..memory.seed import SEED_TEMPLATES, ensure_seed_files
@@ -322,6 +323,69 @@ def _load_config(ctx: click.Context) -> AppSettings:
 def _prepare_runtime(config: AppSettings) -> Path | None:
     """Move a legacy `<app>/state` folder before anything opens it."""
     return migrate_legacy_state(config.root, config.data_dir)
+
+
+@main.command()
+@click.option(
+    "--root",
+    type=click.Path(path_type=Path, exists=True),
+    default=Path("C:/"),
+    show_default=True,
+    help="Directory to scan.",
+)
+@click.option(
+    "--globs",
+    default="*.log,*.txt,*.jsonl",
+    show_default=True,
+    help="Comma-separated filename patterns.",
+)
+@click.option("--max-files", type=click.IntRange(min=1), default=5000, show_default=True)
+@click.option("--recent-days", type=click.IntRange(min=0), default=14, show_default=True)
+@click.option("--max-depth", type=click.IntRange(min=1), default=20, show_default=True)
+@click.option("--limit", type=click.IntRange(min=0, max=200), default=20, show_default=True)
+def discover(
+    root: Path,
+    globs: str,
+    max_files: int,
+    recent_days: int,
+    max_depth: int,
+    limit: int,
+) -> None:
+    """Preview the files a log scan would track. Read-only."""
+    click.echo(_line("scan", f"{root} (last {recent_days} days, max {max_files} files)"))
+    result = discover_log_files(
+        root,
+        globs=coerce_globs(globs),
+        max_files=max_files,
+        recent_days=recent_days,
+        max_depth=max_depth,
+        text_only=True,
+        progress=lambda dirs, files, errors: click.echo(
+            f"  scanned {dirs} dirs, {files} files, {errors} unreadable",
+            err=True,
+        ),
+    )
+    counts: dict[str, int] = {}
+    for path in result.files:
+        suffix = path.suffix.lower() or "(none)"
+        counts[suffix] = counts.get(suffix, 0) + 1
+    click.echo(_line("files", f"{len(result.files)} matched"))
+    click.echo(_line("dirs", f"{result.dirs_seen} scanned, {result.errors} unreadable"))
+    if result.truncated:
+        click.echo(_line("cap", f"stopped at {max_files}; raise max_files or narrow the root"))
+    if counts:
+        by_type = ", ".join(f"{suffix} {count}" for suffix, count in sorted(counts.items()))
+        click.echo(_line("by type", by_type))
+    if limit and result.files:
+        click.echo(_line("sample", ""))
+        for path in result.files[:limit]:
+            click.echo(f"  {path}")
+    click.echo(
+        _line(
+            "note",
+            "from_start defaults to false, so existing lines are not replayed",
+        )
+    )
 
 
 @main.command()
@@ -667,6 +731,10 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     guard = BudgetGuard(conn, config.models.budget, config.data_dir)
     digest = build_digest(config, conn, guard)
     backup = build_backup(config, conn)
+    if any(source.type == "logscan" for source in config.sources):
+        click.echo(
+            "scanning configured log roots; the first pass can take 30-80 seconds..."
+        )
     if not sensors:
         conn.close()
         raise click.ClickException(
@@ -794,6 +862,12 @@ def _describe_sources(sources: tuple[Source, ...]) -> str:
         path = source.options.get("path", "?")
         if source.type == "logfile":
             parts.append(f"logfile {source.options.get('glob', '*.log')} in {path}")
+        elif source.type == "logscan":
+            globs = source.options.get("globs", source.options.get("glob", "*.log"))
+            if isinstance(globs, (list, tuple)):
+                globs = ",".join(str(item) for item in globs)
+            cap = source.options.get("max_files", 5000)
+            parts.append(f"logscan {globs} under {path} (max {cap})")
         else:
             adapter = source.options.get("adapter", "stub")
             parts.append(f"message/{adapter} {path}")

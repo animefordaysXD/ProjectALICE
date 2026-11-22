@@ -708,7 +708,39 @@ desktop; it is covered by data tests and an import/start smoke test locally.
 
 M7 adds DPAPI roundtrip and tamper tests, backup create/skip/prune/restore,
 report rendering, Scheduled Task script generation, CLI backup/report, and a
-simulated crash between ledger and cursor. The suite is 309 tests.
+simulated crash between ledger and cursor. The suite was 309 tests at M7.
+
+## 2026-11-22 — whole-drive log scan
+
+The user asked Alice to track all logs under `C:`. Pointing the existing
+`logfile` sensor at `C:/` with `**/*.log` would re-walk the drive on every poll
+and would enter Windows, Program Files, browser caches, and build trees. That is
+both slow and noisy.
+
+A separate `logscan` source now walks the tree once, caches the file list for
+`refresh_minutes`, and tails the cached files. Safety choices:
+
+- `max_files` (5,000) and `max_depth` (20) bound the list and the walk.
+- `recent_days` (14) ignores files that have not changed recently; `0` disables
+  the age filter.
+- `text_only` reads the first 512 bytes and skips files containing NUL bytes.
+  This removes browser IndexedDB/SQLite `.log` files that are not text logs.
+  UTF-16 logs need `text_only: false`.
+- System and build directories are excluded by name. Alice's data directory and
+  app/repo folder are always excluded so she does not ingest her own log or the
+  message stub twice.
+- `from_start` stays false by default. Backfilling every existing log would
+  create a huge initial event and model burst; the user can opt in.
+- The poll order rotates each cycle so one busy file cannot starve the others.
+
+The first scan of `C:` took about 33–77 seconds on the development machine and
+found roughly 900 text logs after exclusions and binary rejection. `alice
+discover` exposes the same scan without writing to the database so the user can
+inspect the file list first.
+
+`.txt` remains inherently noisy. The cap and age filter make it bounded, but
+narrowing `path` or `globs` is the right response if unrelated text fills the
+ledger.
 
 ## Open decisions carried forward
 
@@ -717,7 +749,7 @@ simulated crash between ledger and cursor. The suite is 309 tests.
 | 1 | First real messaging source | M1 | decided: read-only email; stub only in Phase 1 |
 | 2 | Windows 11 toast library | M5 | decided: `win11toast`, lazy with queue fallback |
 | 3 | Multilingual embedding model | M3 | decided: model2vec `minishlab/potion-multilingual-128M`, 256d, CPU; recall@3 1.000 ko+en |
-| 4 | Real log paths and salience rules | M1 | paths open (Jo to provide); default rules shipped |
+| 4 | Real log paths and salience rules | M1 | decided: whole-C: `logscan` with caps/exclusions; rules still tunable |
 | 5 | Encrypted backup destination | M7 | decided: DPAPI, `%LOCALAPPDATA%\\Alice\\backups`, keep 7 days |
 
 ## 2026-11-21 — M2 router and budget

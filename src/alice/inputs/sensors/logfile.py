@@ -147,7 +147,7 @@ class LogfileSensor(Sensor):
             text = chunk.decode(self.encoding, errors="replace").rstrip("\r")
             events.append(
                 RawEvent(
-                    source=f"logfile:{path.name}",
+                    source=self._source_label(path),
                     kind="log",
                     text=self._clip(text, path),
                     ts=utc_now(),
@@ -167,7 +167,7 @@ class LogfileSensor(Sensor):
                     continue
                 events.append(
                     RawEvent(
-                        source=f"logfile:{path.name}",
+                        source=self._source_label(path),
                         kind="log",
                         text=self._clip(text, path),
                         ts=utc_now(),
@@ -179,6 +179,9 @@ class LogfileSensor(Sensor):
             offset=state.offset + consumed, head=head, size=size
         )
         return events
+
+    def _source_label(self, path: Path) -> str:
+        return f"logfile:{path.name}"
 
     def _clip(self, text: str, path: Path) -> str:
         if len(text) <= MAX_LINE_CHARS:

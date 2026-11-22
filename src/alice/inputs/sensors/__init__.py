@@ -13,19 +13,33 @@ from ..config import Source
 from ..gate import Gate, IngestResult
 from .base import Sensor
 from .logfile import LogfileSensor
+from .logscan import LogScanSensor
 from .message_stub import StubMessageSensor
 
 logger = logging.getLogger(__name__)
 
 
 def build_sensors(
-    sources: Iterable[Source], *, root: Path, cursors: CursorStore
+    sources: Iterable[Source],
+    *,
+    root: Path,
+    cursors: CursorStore,
+    exclude_paths: Iterable[Path | str] = (),
 ) -> list[Sensor]:
     """Create one sensor per configured source."""
     sensors: list[Sensor] = []
     for source in sources:
         if source.type == "logfile":
             sensors.append(LogfileSensor(source, root=root, cursors=cursors))
+        elif source.type == "logscan":
+            sensors.append(
+                LogScanSensor(
+                    source,
+                    root=root,
+                    cursors=cursors,
+                    exclude_paths=exclude_paths,
+                )
+            )
         elif source.type == "message":
             sensors.append(StubMessageSensor(source, root=root, cursors=cursors))
         else:  # config validation should make this unreachable

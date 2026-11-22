@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 309 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 321 tests pass.
 
 ---
 
@@ -75,7 +75,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | --- | --- |
 | Configuration | One YAML file, per-module parsers, secret rejection, unknown-key rejection |
 | Runtime data | Per-user profile, `--data-dir`/env/profile overrides, legacy migration |
-| Inputs | Rotation-safe log tailer, local message stub, cursors, encoding recovery |
+| Inputs | Rotation-safe log tailer, bounded whole-drive `.log`/`.txt`/`.jsonl` scan, local message stub, cursors |
 | Privacy | Korean RRN, phone, card, bank account, email, custom regex masks; raw payloads local-only |
 | Gate | Normalization, exact dedupe, near-duplicate collapse with count, rule-based salience, novelty |
 | Ledger | SQLite WAL, FTS5, append-only events, raw payload references, retention metadata |
@@ -94,7 +94,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Recovery | Crash-safe cursors: restart loses nothing and writes no duplicates |
 | CI | Windows GitHub Actions: tests, crash proof, exe build, smoke test, release asset |
 | Alerts | Budget refusals recorded and shown in the digest |
-| CLI | `init`, `run`, `status`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui` |
+| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui` |
 | Packaging | Single-file `alice.exe`, `alice-gui.exe`, portable folder, zip, setup shortcuts |
 
 ---
@@ -175,11 +175,16 @@ py -3.12 -m venv .venv
 ```
 
 A free end-to-end check that exercises ingestion, memory, and triage with the
-fake provider:
+fake provider. The first whole-drive scan takes roughly 30–80 seconds:
 
 ```powershell
+.\.venv\Scripts\alice.exe discover --root C:/ --limit 10
 .\.venv\Scripts\alice.exe run --once --dry-run
 ```
+
+With `from_start: false` (the default), existing lines are not replayed, so a
+first `--once` may insert nothing until a tracked log changes. Set
+`from_start: true` for a deliberate one-time backfill.
 
 Then run continuously:
 
@@ -198,6 +203,8 @@ Then run continuously:
 alice init                       Create data dirs, database, migrations, seed files, core memory
 alice run [--once] [--dry-run]   Poll inputs, ingest, index memory, and triage
 alice status                     Show config, schema, sources, counts, memory, spend, paused state
+alice discover [--root C:/] [--max-files N]
+                                 Preview which log files a scan would track; no DB writes
 alice pause [--reason TEXT]      Block every model call until resumed
 alice resume                     Allow model calls again
 alice approve [ID]               List pending memory proposals, or approve one
@@ -248,7 +255,20 @@ consolidation:
   max_tokens: 6000
 
 sources:
-  - {type: logfile, path: './logs', glob: '*.log', from_start: true}
+  - type: logscan
+    path: 'C:/'
+    globs: ['*.log', '*.txt', '*.jsonl']
+    max_files: 5000
+    refresh_minutes: 30
+    max_depth: 20
+    recent_days: 14
+    text_only: true
+    from_start: false
+    exclude_dirs: [Windows, 'Program Files', 'Program Files (x86)', ProgramData,
+                   '$Recycle.Bin', 'System Volume Information', Recovery,
+                   PerfLogs, MSOCache, Config.Msi, 'Documents and Settings',
+                   '$WinREAgent', '$SysReset', .git, node_modules, __pycache__,
+                   .venv, venv, site-packages, build, dist, obj]
   - {type: message, adapter: stub, path: './messages.txt'}
 
 memory:
@@ -292,6 +312,38 @@ plugins:
 
 Model names live only in this file. Every config section has one owner parser
 under its module; `app/settings.py` composes them.
+
+### Whole-drive log scanning
+
+`type: logscan` walks a tree, caches the matching file list, and tails files.
+For `C:/` the first scan takes roughly 30–80 seconds on a normal machine; the
+list is then reused for `refresh_minutes`. Before enabling a broad scan, preview
+it:
+
+```powershell
+alice discover --root C:/ --recent-days 14 --limit 20
+```
+
+Safety limits:
+
+- `max_files` stops discovery at 5,000 files, so the event loop stays bounded.
+- `max_depth` stops pathological deep trees.
+- `recent_days` ignores files that have not changed recently. Use `0` to
+  include everything.
+- `text_only` skips binary files that merely end in `.log`, such as browser
+  IndexedDB or SQLite files. Set it to `false` only if you really need UTF-16
+  or other binary-ish logs.
+- `exclude_dirs` skips Windows, Program Files, ProgramData, recycle/system
+  folders, and build/vendor trees.
+- Alice's own data directory and app folder are always excluded, so she does
+  not ingest her own log or `messages.txt` twice.
+- `from_start` defaults to `false`: existing lines are not replayed, only lines
+  written after Alice starts. Set it to `true` only if you accept a large
+  one-time backfill.
+- Files are polled in a rotating order so one noisy log cannot starve the rest.
+
+The existing `logfile` source remains the right choice for a single known
+directory when you do not want a drive-wide scan.
 
 ---
 
@@ -641,6 +693,8 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 ### Privacy rules
 
 - Redaction runs before hashing, storage, or any model call.
+- Only configured sources are read. A whole-drive scan skips system/build
+  trees, binary files, and Alice's own data folder.
 - Raw text is kept locally only when redaction changed it; it is never sent.
 - The ledger stores redacted text and content hashes.
 - Observed data is wrapped as untrusted and cannot close its wrapper early.
@@ -684,11 +738,13 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-309 tests cover:
+321 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
+- whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
+  cached refresh, and rotating fairness;
 - a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
 - dedupe, collapse counts, salience, raw payload policy;
@@ -807,6 +863,11 @@ milestone in the original spec.
   in the background; it reads the database written by `alice run`.
 - Encrypted backups use Windows DPAPI and are therefore per-user and
   per-machine. Copying a `.alicebak` to another account will not restore.
+- A whole-drive scan is broad by design. It is bounded by `max_files`,
+  `recent_days`, and `text_only`, but `.txt` files are noisier than `.log`
+  files. Narrow `path` or `globs` if the ledger fills with unrelated text.
+- `from_start: false` means a freshly started Alice does not replay old logs;
+  it watches for new lines. Use `true` for a deliberate backfill.
 - The logon task is installed for the current user and needs that user's
   Windows session for toasts. A service would need a separate notification path.
 - `alice startup --install` requires the packaged build; source checkouts use

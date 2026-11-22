@@ -78,6 +78,7 @@ src/alice/
       base.py              Sensor interface
       common.py            cursor encoding, head hashes
       logfile.py           rotation-safe log tailer
+      logscan.py           bounded whole-drive discovery + cached scan
       message_stub.py      local message file
   memory/                  what Alice remembers
     __init__.py
@@ -160,7 +161,8 @@ Depends on: `contracts`.
 
 Turns the outside world into ledger events. Read-only and model-free.
 
-- Sensor interface and adapters (log file, message stub, later email).
+- Sensor interface and adapters (single log file/dir, bounded whole-drive scan,
+  message stub, later email).
 - Redaction, normalization, dedupe, salience.
 - The poll → redact → gate → ledger loop.
 
@@ -382,4 +384,4 @@ A module is "separate" when all of these are true:
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 309-test suite is the safety net.
+the boundaries move; the 321-test suite is the safety net.

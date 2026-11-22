@@ -68,9 +68,17 @@ class Ingestion:
 def build_ingestion(settings: AppSettings, conn: sqlite3.Connection) -> Ingestion:
     """Sensor fan-out plus the gate that writes the core ledger."""
     cursors = CursorStore(conn)
+    excluded = [settings.data_dir, settings.log_dir]
+    # Skip the app/repo folder so Alice does not ingest her own logs, README,
+    # or the message stub twice. A drive root is not excluded.
+    if settings.root.parent != settings.root:
+        excluded.append(settings.root)
     return Ingestion(
         sensors=build_sensors(
-            settings.inputs.sources, root=settings.root, cursors=cursors
+            settings.inputs.sources,
+            root=settings.root,
+            cursors=cursors,
+            exclude_paths=tuple(excluded),
         ),
         gate=Gate(
             conn,

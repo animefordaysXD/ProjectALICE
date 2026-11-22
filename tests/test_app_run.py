@@ -283,6 +283,59 @@ def test_consolidate_dry_run_writes_summaries(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_logscan_once_reads_existing_and_new_lines(tmp_path: Path) -> None:
+    root = tmp_path / "alice"
+    root.mkdir()
+    logs = tmp_path / "outside" / "logs"
+    logs.mkdir(parents=True)
+    log = logs / "app.log"
+    log.write_text("first failure\n", encoding="utf-8")
+    config_dir = root / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "alice.yaml"
+    config_path.write_text(
+        f"""\
+models:
+  triage:      {{provider: fake, model: fake-triage}}
+  reason:      {{provider: fake, model: fake-reason}}
+  consolidate: {{provider: fake, model: fake-consolidate}}
+sources:
+  - type: logscan
+    path: '{logs.as_posix()}'
+    globs: ['*.log']
+    from_start: true
+    recent_days: 0
+gate:
+  min_salience: 0.5
+""",
+        encoding="utf-8",
+    )
+
+    assert invoke(config_path, "init").exit_code == 0
+    first = invoke(config_path, "run", "--once", "--dry-run")
+    assert first.exit_code == 0, first.output
+    assert "inserted    1" in first.output
+
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write("second failure\n")
+    second = invoke(config_path, "run", "--once", "--dry-run")
+    assert second.exit_code == 0, second.output
+    assert "inserted    1" in second.output
+
+    conn = connect(root / "state" / "alice.db", create=False)
+    try:
+        texts = [
+            row["text_redacted"]
+            for row in conn.execute(
+                "SELECT text_redacted FROM events "
+                "WHERE source LIKE 'logfile:%' ORDER BY id"
+            )
+        ]
+    finally:
+        conn.close()
+    assert texts == ["first failure", "second failure"]
+
+
 def test_poll_once_counts_duplicates(tmp_path: Path) -> None:
     """The Korean fixture repeats one line; the ledger must drop it."""
     root = tmp_path / "alice"

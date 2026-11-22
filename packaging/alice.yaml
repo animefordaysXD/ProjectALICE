@@ -37,7 +37,41 @@ plugins:
   enabled: []
 
 sources:
-  - {type: logfile, path: './logs', glob: '*.log', from_start: true}
+  # Bounded whole-drive scan. The first run can take a few minutes; the file
+  # list is then cached for refresh_minutes. Existing lines are not replayed
+  # unless `from_start: true` is set.
+  - type: logscan
+    path: 'C:/'
+    globs: ['*.log', '*.txt', '*.jsonl']
+    max_files: 5000
+    refresh_minutes: 30
+    max_depth: 20
+    recent_days: 14
+    text_only: true
+    from_start: false
+    exclude_dirs:
+      - Windows
+      - Program Files
+      - Program Files (x86)
+      - ProgramData
+      - $Recycle.Bin
+      - System Volume Information
+      - Recovery
+      - PerfLogs
+      - MSOCache
+      - Config.Msi
+      - Documents and Settings
+      - $WinREAgent
+      - $SysReset
+      - .git
+      - node_modules
+      - __pycache__
+      - .venv
+      - venv
+      - site-packages
+      - build
+      - dist
+      - obj
   - {type: message, adapter: stub, path: './messages.txt'}
 
 gate:

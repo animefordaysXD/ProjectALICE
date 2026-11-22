@@ -389,6 +389,21 @@ def test_report_shows_usage_and_writes_a_file(config_path: Path) -> None:
     assert list((root / "state" / "reports").glob("report-*.md"))
 
 
+def test_discover_previews_matching_logs(tmp_path: Path) -> None:
+    (tmp_path / "app.log").write_text("error happened\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("not a log\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        ["discover", "--root", str(tmp_path), "--recent-days", "0", "--limit", "5"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "app.log" in result.output
+    assert "notes.md" not in result.output
+    assert "1 matched" in result.output
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="DPAPI is Windows-only")
 def test_backup_list_and_restore(config_path: Path, tmp_path: Path) -> None:
     assert run(config_path, "init").exit_code == 0

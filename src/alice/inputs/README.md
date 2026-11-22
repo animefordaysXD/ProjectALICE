@@ -3,7 +3,8 @@
 Read-only observation. Turns logs and messages into ledger events. Never calls
 a model.
 
-- `sensors/`: interface, rotation-safe log tailer, local message stub.
+- `sensors/`: interface, rotation-safe log tailer, bounded whole-drive log
+  scan with caching/exclusions, local message stub.
 - `redact.py`: RRN, phone, card, account, email, custom masks.
 - `gate.py`: normalization, dedupe, salience, ingestion.
 

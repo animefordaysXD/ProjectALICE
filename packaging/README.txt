@@ -40,9 +40,12 @@ and delete the data folder.
 
 First run
 ---------
-1. Edit config\alice.yaml if needed. By default Alice watches:
-     .\logs\*.log       (drop log files here, beside alice.exe)
-     .\messages.txt     (one message per line, beside alice.exe)
+1. Edit config\alice.yaml if needed. By default Alice scans C:\ for recent
+   .log, .txt, and .jsonl files, skipping Windows, Program Files, ProgramData,
+   recycle/system folders, and build/vendor trees. Existing lines are not
+   replayed; Alice watches for new lines. The message stub still reads
+   .\messages.txt (one message per line).
+   Preview the scan first:  alice.exe discover --limit 20
 2. Double-click "Init Alice.cmd" once. This creates the data folder, the
    memory\seed files, and memory\core.json.
 3. Edit memory\core.json to change what Alice always remembers. Use
@@ -58,6 +61,7 @@ First run
 Commands
 --------
   alice.exe status                 show schema, sources, counts, memory, spend
+  alice.exe discover --limit 20    preview the C:\ log files a scan would track
   alice.exe run --once             poll sources once, index memory, triage, exit
   alice.exe run --dry-run          same, using the fake model and no spend
   alice.exe approve                list pending memory proposals
@@ -94,4 +98,7 @@ Notes
   leaves the old folder alone and logs a warning.
 - A crash is safe: each event is committed before its cursor advances, so a
   restart loses nothing and dedupe prevents duplicates.
+- The first whole-drive scan takes roughly 30-80 seconds and is cached for 30
+  minutes. `max_files`, `recent_days`, and `text_only` keep it bounded. Narrow
+  `path` or `globs` if unrelated .txt files are too noisy.
 - Backups are local only. Alice never uploads the database, memory, or reports.

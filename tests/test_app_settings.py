@@ -25,7 +25,15 @@ def test_repo_config_loads() -> None:
     assert config.triage.interval_minutes == 5
     assert config.notify.quiet_hours == "22:00-08:00"
     assert config.notify.min_toast_priority == 2
-    assert [source.type for source in config.sources] == ["logfile", "message"]
+    assert [source.type for source in config.sources] == ["logscan", "message"]
+    logscan = config.sources[0].options
+    assert logscan["path"] == "C:/"
+    assert logscan["globs"] == ["*.log", "*.txt", "*.jsonl"]
+    assert logscan["max_files"] == 5000
+    assert logscan["refresh_minutes"] == 30
+    assert logscan["recent_days"] == 14
+    assert logscan["text_only"] is True
+    assert logscan["from_start"] is False
     assert config.retention.raw_payload_days == 14
     assert config.retention.max_raw_mb == 50
     assert config.gate.min_salience == 0.5
@@ -174,6 +182,61 @@ def test_bad_backup_hour(config_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="backup.hour"):
+        load_settings(config_path)
+
+
+def test_logscan_source_options(config_path: Path) -> None:
+    text = config_path.read_text(encoding="utf-8").replace(
+        "  - {type: logfile, path: './logs', glob: '*.log'}",
+        (
+            "  - type: logscan\n"
+            "    path: 'C:/'\n"
+            "    globs: ['*.log', '*.txt', '*.jsonl']\n"
+            "    max_files: 100\n"
+            "    refresh_minutes: 15\n"
+            "    max_depth: 8\n"
+            "    recent_days: 0\n"
+            "    from_start: false\n"
+            "    exclude_dirs: [Windows, 'Program Files']\n"
+            "    exclude_paths: ['C:/Temp']\n"
+        ),
+    )
+    write_config(config_path, text)
+
+    config = load_settings(config_path)
+    source = config.sources[0]
+
+    assert source.type == "logscan"
+    assert source.options["path"] == "C:/"
+    assert source.options["globs"] == ["*.log", "*.txt", "*.jsonl"]
+    assert source.options["max_files"] == 100
+    assert source.options["refresh_minutes"] == 15
+    assert source.options["max_depth"] == 8
+    assert source.options["recent_days"] == 0
+    assert source.options["exclude_dirs"] == ["Windows", "Program Files"]
+
+
+@pytest.mark.parametrize(
+    ("replacement", "message"),
+    [
+        (
+            "  - {type: logscan, path: './logs', glob: '*.log', globs: ['*.log']}",
+            "either glob or globs",
+        ),
+        ("  - {type: logscan, path: './logs', max_files: 0}", "max_files"),
+        ("  - {type: logscan, path: './logs', recent_days: -1}", "recent_days"),
+        ("  - {type: logscan, path: './logs', exclude_dirs: 'Windows'}", "exclude_dirs"),
+    ],
+)
+def test_bad_logscan_options(
+    config_path: Path, replacement: str, message: str
+) -> None:
+    text = config_path.read_text(encoding="utf-8").replace(
+        "  - {type: logfile, path: './logs', glob: '*.log'}", replacement
+    )
+    write_config(config_path, text)
+
+    with pytest.raises(ConfigError, match=message):
         load_settings(config_path)
 
 

@@ -2,7 +2,8 @@
 # Secrets never belong in this file. API keys come from environment variables
 # or Windows Credential Manager (wired up in M2).
 #
-# Paths in `sources` are examples. Jo will provide the real log paths.
+# `sources` defaults to a bounded scan of C:/ for recent .log/.txt/.jsonl files.
+# Run `alice discover` to preview it, or narrow `path`/`globs` if it is noisy.
 
 models:
   # Alice currently delegates to OpenCode Go through the OpenCode desktop CLI.
@@ -49,10 +50,43 @@ plugins:
   enabled: []
 
 sources:
-  # `from_start: true` backfills an existing file. Default tails from the end.
-  - {type: logfile, path: 'C:/path/to/logs', glob: '*.log'}
+  # Bounded whole-drive scan. The first run can take a few minutes; the file
+  # list is then cached for refresh_minutes. Existing lines are not replayed
+  # unless `from_start: true` is set.
+  - type: logscan
+    path: 'C:/'
+    globs: ['*.log', '*.txt', '*.jsonl']
+    max_files: 5000
+    refresh_minutes: 30
+    max_depth: 20
+    recent_days: 14
+    text_only: true
+    from_start: false
+    exclude_dirs:
+      - Windows
+      - Program Files
+      - Program Files (x86)
+      - ProgramData
+      - $Recycle.Bin
+      - System Volume Information
+      - Recovery
+      - PerfLogs
+      - MSOCache
+      - Config.Msi
+      - Documents and Settings
+      - $WinREAgent
+      - $SysReset
+      - .git
+      - node_modules
+      - __pycache__
+      - .venv
+      - venv
+      - site-packages
+      - build
+      - dist
+      - obj
   # The message stub reads any local file, one message per line.
-  - {type: message, adapter: stub, path: 'C:/path/to/messages.txt'}
+  - {type: message, adapter: stub, path: './messages.txt'}
 
 gate:
   min_salience: 0.5

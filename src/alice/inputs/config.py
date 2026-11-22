@@ -18,7 +18,7 @@ from ..core.config import (
     validate_encoding,
 )
 
-SOURCE_TYPES = ("logfile", "message")
+SOURCE_TYPES = ("logfile", "message", "logscan")
 _PLACEHOLDER_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 DEFAULT_SALIENCE_RULES: tuple[tuple[str, str, float], ...] = (
@@ -212,4 +212,80 @@ def _validate_source_options(source_type: str, options: Mapping[str, Any], where
             raise ConfigError(
                 f"{where}.adapter: '{adapter}' is not built yet (only 'stub' is available)"
             )
+    elif source_type == "logscan":
+        allowed = {
+            "path",
+            "glob",
+            "globs",
+            "encoding",
+            "from_start",
+            "max_lines",
+            "exclude_dirs",
+            "exclude_paths",
+            "max_files",
+            "refresh_minutes",
+            "max_depth",
+            "recent_days",
+            "text_only",
+        }
+        if "glob" in options and "globs" in options:
+            raise ConfigError(f"{where}: use either glob or globs, not both")
+        if "text_only" in options and not isinstance(options["text_only"], bool):
+            raise ConfigError(f"{where}.text_only: expected true or false")
+        _validate_globs(options, where)
+        _validate_string_list(options, "exclude_dirs", where)
+        _validate_string_list(options, "exclude_paths", where)
+        _validate_positive_int(options, "max_files", where)
+        _validate_positive_int(options, "refresh_minutes", where)
+        _validate_positive_int(options, "max_depth", where)
+        if "recent_days" in options:
+            recent = options["recent_days"]
+            if isinstance(recent, bool) or not isinstance(recent, int) or recent < 0:
+                raise ConfigError(
+                    f"{where}.recent_days: expected an integer >= 0"
+                )
     reject_unknown(options, allowed, where)
+
+
+def _validate_globs(options: Mapping[str, Any], where: str) -> None:
+    if "globs" not in options:
+        return
+    globs = options["globs"]
+    if isinstance(globs, str):
+        if not globs.strip():
+            raise ConfigError(f"{where}.globs: expected a non-empty string")
+        return
+    if not isinstance(globs, list) or not globs:
+        raise ConfigError(f"{where}.globs: expected a non-empty list of globs")
+    for index, pattern in enumerate(globs):
+        if not isinstance(pattern, str) or not pattern.strip():
+            raise ConfigError(
+                f"{where}.globs[{index}]: expected a non-empty string"
+            )
+
+
+def _validate_string_list(
+    options: Mapping[str, Any], key: str, where: str
+) -> None:
+    if key not in options:
+        return
+    values = options[key]
+    if not isinstance(values, list):
+        raise ConfigError(f"{where}.{key}: expected a list of strings")
+    for index, value in enumerate(values):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(
+                f"{where}.{key}[{index}]: expected a non-empty string"
+            )
+
+
+def _validate_positive_int(
+    options: Mapping[str, Any], key: str, where: str
+) -> None:
+    if key not in options:
+        return
+    value = options[key]
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigError(
+            f"{where}.{key}: expected an integer greater than zero"
+        )
