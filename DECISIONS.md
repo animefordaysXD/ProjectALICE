@@ -785,6 +785,27 @@ batches, and three suggestions were recorded, then the run went silent while
 the process remained alive. Future handovers show restarts and their reasons
 in the process-runs table.
 
+## 2026-11-23 — isolated stress harness
+
+The stress session uses synthetic data and a separate profile so a bug or
+corrupt cursor cannot damage the real ledger. Three roots sit side by side:
+config, logs, and data. The config root is deliberately not an ancestor of the
+stress logs, because logscan always excludes the app/config root; otherwise the
+dedicated stress source would exclude itself.
+
+The generator exercises the paths that are hard to reproduce with ordinary
+logs: rotation, truncation, a 500-line burst, a 12 KB line, JSONL and TXT,
+Korean text, fake PII, and a binary `.log` that `text_only` must skip. The
+controller samples event count, backlog, DB/WAL size, process count, RSS, and
+integrity every minute. It kills Alice every 75 minutes to exercise restart and
+cursor recovery, and runs `report`/`backup` concurrently to test SQLite
+contention. A dry-run consolidation runs every two hours.
+
+The stress profile is intentionally noisier than the real one: 10 lines/s,
+one-minute triage, 6,000-token batches, toast priority 1, 10 toasts/hour, and a
+one-day raw retention. The point is to find failures, not to produce a quiet
+daily driver.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

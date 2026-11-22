@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 326 tests pass.
+**Status:** M0-M7 complete. Phase 1 is feature-complete. 327 tests pass.
 
 ---
 
@@ -536,6 +536,18 @@ The supervisor:
 `scripts/session_report.py` can rebuild the handover from the database and logs
 without starting Alice. `-DryRun` is available for testing the supervisor.
 
+For stress testing, use a separate profile and synthetic logs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stress_session.ps1 -Hours 6
+```
+
+This starts a synthetic log generator, runs the same supervisor against an
+isolated stress data directory, samples database/process metrics every minute,
+kills Alice periodically to test restart recovery, runs concurrent
+`report`/`backup` commands, and writes `stress-summary.md` plus the normal
+handover. It does not touch the real `%LOCALAPPDATA%\Alice` store.
+
 ## Memory
 
 Alice has three memory layers plus an editable core file.
@@ -785,7 +797,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-326 tests cover:
+327 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -795,6 +807,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - one-time backfill: `from_start` override, chunked reads, resumable cursors,
   quiet-stop, and zero model calls;
 - timed-session handover report: usage, triage, suggestions, logs, integrity;
+- stress harness: synthetic rotation/truncation/flood/PII logs, metrics,
+  deliberate process kills, concurrent report/backup;
 - toast timeout and run heartbeat watchdog, so a blocked notification cannot
   freeze the loop for a whole session;
 - a simulated crash between ledger commit and cursor advance;
@@ -835,6 +849,12 @@ alice/
     build_exe.ps1          PyInstaller build + distribution folder/zip
     crash_recovery.ps1     kill/restart proof
     crash_stats.py         read-only counts for the proof
+    run_session.ps1        timed supervisor + handover
+    session_report.py      read-only handover markdown
+    stress_session.ps1     stress orchestration + metrics
+    stress_logs.py         synthetic rotating/truncating log generator
+    stress_metrics.py      one CSV metric sample
+    stress_report.py       stress summary markdown
     embedding_eval.py      Korean/English retrieval evaluation
   .github/workflows/       CI and tag release
   src/alice/

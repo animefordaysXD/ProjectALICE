@@ -384,4 +384,4 @@ A module is "separate" when all of these are true:
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 326-test suite is the safety net.
+the boundaries move; the 327-test suite is the safety net.
