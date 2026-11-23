@@ -1,5 +1,12 @@
-"""Policy and reasoning: triage, reasoning, and consolidation."""
+"""Policy and reasoning: triage, reasoning, consolidation, and chat."""
 
+from .chat import (
+    ChatError,
+    ChatMessage,
+    ChatResult,
+    ChatService,
+    load_chat_history,
+)
 from .consolidate import (
     ConsolidationFormatError,
     ConsolidationResult,
@@ -26,6 +33,10 @@ from .triage import (
 )
 
 __all__ = [
+    "ChatError",
+    "ChatMessage",
+    "ChatResult",
+    "ChatService",
     "ConsolidationFormatError",
     "ConsolidationResult",
     "ConsolidationService",
@@ -40,6 +51,7 @@ __all__ = [
     "TriageFormatError",
     "TriageResult",
     "TriageService",
+    "load_chat_history",
     "parse_daily_summary",
     "parse_decision",
     "parse_hourly_summary",

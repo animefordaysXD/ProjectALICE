@@ -54,6 +54,10 @@ First run
    The first run downloads the local embedding model (about 130 MB) into
    cache\; later runs reuse it.
 5. Double-click "Alice GUI.cmd" for the read-only desktop dashboard.
+   The Chat tab answers questions about events, suggestions, memory, and the
+   digest. Chat is user-initiated and budgeted; it cannot act on the computer.
+   The Suggestions tab shows steps/evidence and lets you mark items done or
+   dismiss them, copy them, or save a chat answer as a new suggestion.
 6. Optional: double-click "Install startup.cmd" to run Alice hidden at logon.
    "Remove startup.cmd" unregisters it. Windows Task Scheduler is used because
    toasts need the signed-in user's session.

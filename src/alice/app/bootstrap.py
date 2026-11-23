@@ -6,6 +6,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 
+from ..brain.chat import ChatService
 from ..brain.consolidate import ConsolidationService
 from ..brain.reason import ReasoningService
 from ..brain.triage import TriageService
@@ -40,6 +41,10 @@ DRY_RUN_REASON = json.dumps(
                 "text": "Dry run suggestion for the escalated batch.",
                 "priority": 2,
                 "reason": "dry run",
+                "steps": ["Review the dry-run event.", "Confirm the pipeline is working."],
+                "evidence": "deterministic dry-run provider",
+                "category": "maintenance",
+                "confidence": 0.5,
             }
         ],
         "needs_heavy": False,
@@ -197,6 +202,21 @@ def build_consolidation(
 
 def build_backup(settings: AppSettings, conn: sqlite3.Connection) -> BackupService:
     return BackupService(conn, settings.data_dir, settings.core.backup)
+
+
+def build_chat(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router,
+    memory: MemoryService,
+) -> ChatService:
+    return ChatService(
+        conn,
+        router=router,
+        memory=memory,
+        hard_memory=memory.hard_block,
+        data_dir=settings.data_dir,
+    )
 
 
 def build_digest(

@@ -263,12 +263,23 @@ def test_parse_reasoning_validation() -> None:
         parse_reasoning(
             '{"assessment":"x","suggestions":[{"text":"y","priority":9}]}'
         )
-    with pytest.raises(ReasoningFormatError, match="20 words"):
+    with pytest.raises(ReasoningFormatError, match="30 words"):
         parse_reasoning(
             '{"assessment":"x","suggestions":[{"text":"y","priority":1,"reason":"'
-            + " ".join(["w"] * 21)
+            + " ".join(["w"] * 31)
             + '"}]}'
         )
+
+    rich = parse_reasoning(
+        '{"assessment":"x","suggestions":[{'
+        '"text":"y","priority":2,"reason":"r",'
+        '"steps":["check","verify"],"evidence":"log line",'
+        '"category":"performance","confidence":0.75}]}'
+    ).suggestions[0]
+    assert rich.steps == ("check", "verify")
+    assert rich.evidence == "log line"
+    assert rich.category == "performance"
+    assert rich.confidence == 0.75
     with pytest.raises(ReasoningFormatError, match="at most"):
         parse_reasoning(
             '{"assessment":"x","suggestions":['

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from ..contracts.outputs import Notifier, Suggestion, SuggestionSink
+from ..core.db import utc_now
 from .config import Notify
 
 
@@ -21,6 +22,10 @@ class QueuedSuggestion:
     source_event_ids: tuple[int, ...]
     status: str
     shown_at: str | None
+    steps: tuple[str, ...] = ()
+    evidence: str | None = None
+    category: str | None = None
+    confidence: float | None = None
 
 
 class SuggestionQueue(SuggestionSink):
@@ -30,13 +35,12 @@ class SuggestionQueue(SuggestionSink):
     def submit(
         self, suggestion: Suggestion, *, created: str | None = None
     ) -> int:
-        from ..core.db import utc_now
-
         cursor = self.conn.execute(
             """
             INSERT INTO suggestions
-              (created, priority, text, reason, source_event_ids, status)
-            VALUES (?, ?, ?, ?, ?, 'queued')
+              (created, priority, text, reason, source_event_ids, status,
+               steps, evidence, category, confidence)
+            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
             """,
             (
                 created or utc_now(),
@@ -44,10 +48,29 @@ class SuggestionQueue(SuggestionSink):
                 suggestion.text,
                 suggestion.reason,
                 json.dumps(list(suggestion.source_event_ids)),
+                json.dumps(list(suggestion.steps)),
+                suggestion.evidence,
+                suggestion.category,
+                suggestion.confidence,
             ),
         )
         self.conn.commit()
         return int(cursor.lastrowid)
+
+    def set_status(self, suggestion_id: int, status: str) -> None:
+        if status not in ("queued", "shown", "done", "dismissed"):
+            raise ValueError(f"unsupported suggestion status: {status}")
+        self.conn.execute(
+            "UPDATE suggestions SET status = ?, status_changed = ? WHERE id = ?",
+            (status, utc_now(), suggestion_id),
+        )
+        self.conn.commit()
+
+    def get(self, suggestion_id: int) -> QueuedSuggestion | None:
+        row = self.conn.execute(
+            "SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)
+        ).fetchone()
+        return None if row is None else _row(row)
 
     def pending(self, limit: int = 50) -> list[QueuedSuggestion]:
         rows = self.conn.execute(
@@ -131,6 +154,10 @@ def _row(row: sqlite3.Row) -> QueuedSuggestion:
         ids = tuple(int(value) for value in json.loads(row["source_event_ids"] or "[]"))
     except (TypeError, ValueError, json.JSONDecodeError):
         ids = ()
+    try:
+        steps = tuple(str(value) for value in json.loads(row["steps"] or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        steps = ()
     return QueuedSuggestion(
         id=int(row["id"]),
         created=str(row["created"]),
@@ -140,4 +167,8 @@ def _row(row: sqlite3.Row) -> QueuedSuggestion:
         source_event_ids=ids,
         status=str(row["status"]),
         shown_at=row["shown_at"],
+        steps=steps,
+        evidence=row["evidence"],
+        category=row["category"],
+        confidence=row["confidence"],
     )

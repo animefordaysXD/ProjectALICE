@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** M0-M7 complete. Phase 1 is feature-complete. 327 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions and local chat. 331 tests pass.
 
 ---
 
@@ -85,9 +85,10 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Embeddings | Local CPU multilingual embeddings (`potion-multilingual-128M`, 256d) |
 | Triage | Batched Tier 1, strict JSON decisions, one retry, ledger status updates, `--dry-run` |
 | Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
-| Output | Suggestion queue, quiet hours, hourly toast cap, priority threshold, daily markdown digest |
+| Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, toast cap, daily digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
-| GUI | Read-only Tkinter dashboard with events, suggestions, memory approvals, digest, pause/resume |
+| GUI | Read-only dashboard with events, suggestion actions, memory approvals, digest, pause/resume, and local chat |
+| Chat | Budgeted read-only Q&A over the ledger, suggestions, memory, and digest; no tools or actions |
 | Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
 | Report | `alice report` weekly spend, token, tier, model, and activity trends |
 | Startup | Hidden logon Scheduled Task with restart-on-failure; `alice startup` |
@@ -438,17 +439,46 @@ read-only Tkinter dashboard:
 - **Overview cards:** events, eligible events, queued suggestions, pending
   proposals, spend, paused state.
 - **Events:** recent redacted events with status and salience.
-- **Suggestions:** priority, text, reason, delivery status.
+- **Suggestions:** priority, status, category, confidence, text, and reason.
+  Select a row to see its steps and evidence. You can mark it done, dismiss it,
+  copy the full suggestion, or save a chat answer as a new suggestion.
+- **Chat:** ask about events, suggestions, memory, or the digest. Answers are
+  persisted locally and include the context they used.
 - **Memory:** core JSON path/token count, approved memory, pending proposals
   with Approve/Reject buttons.
 - **Digest:** today's markdown; a button writes/updates it.
 - **Controls:** pause/resume model calls, open the data folder, core memory, or
   digest folder.
-- **Refresh:** every five seconds.
+- **Refresh:** every five seconds for the dashboard; chat updates when a reply
+  arrives.
 
-The GUI performs no sensing or reasoning. Approving memory, pausing calls, and
-writing a digest are explicit user actions; everything shown is read from the
-local database. It has no network access of its own.
+The GUI performs no sensing or reasoning in the background. Approving memory,
+pausing calls, marking suggestions done/dismissed, and writing a digest are
+explicit user actions. Chat is also explicit: it reads local context and makes
+one budgeted `reason`-tier call per question. It has no tools and cannot act.
+
+### Chat
+
+The Chat tab answers questions such as:
+
+- "What are the most urgent open suggestions?"
+- "Why did Alice flag the queue at 03:20?"
+- "What do you remember about this project?"
+- "What should I check first, and what can you not do?"
+
+Each answer uses:
+
+- hard memory and approved facts;
+- local archive recall for the question;
+- up to eight open suggestions with steps/evidence;
+- up to ten high-salience events;
+- today's digest;
+- the last few chat turns.
+
+The prompt explicitly forbids claiming actions and requires the model to say
+when the local context is insufficient. Chat history is stored in
+`chat_messages`; clearing it is a local admin action. Chat calls use the
+existing budget guard and are refused while Alice is paused.
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
@@ -744,8 +774,9 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 | `memory_embeddings` | memory | memory |
 | `triage_batches` | brain | brain |
 | `consolidation_runs` | brain | brain |
+| `chat_messages` | brain | brain chat service |
 | `backup_runs` | core | core backup service |
-| `suggestions` | outputs | outputs |
+| `suggestions` | outputs | outputs/reasoning; user status changes |
 | `budget_alerts` | models | models |
 | `usage` | models | models |
 
@@ -797,7 +828,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-327 tests cover:
+331 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -818,6 +849,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - core memory JSON, hard memory approvals and write protection, TTL tasks;
 - FTS and sqlite-vec recall, summaries-first ranking, token budgets;
 - triage decisions, retries, batching, 200-event replay, prompt-prefix stability;
+- structured suggestion validation: steps, evidence, category, confidence;
+- chat persistence, context assembly, citations, empty/error handling, clearing;
 - consolidation summaries, proposals, idempotency, retention pruning;
 - DPAPI encryption roundtrip, backup create/record/prune, tamper rejection, restore;
 - weekly report totals, daily/tier/model tables, markdown write;
@@ -934,7 +967,11 @@ milestone in the original spec.
 - The heavy tier is capped per day and only used when reasoning sets
   `needs_heavy`; no automatic escalation to heavy exists yet.
 - The GUI is a local read-only dashboard. It does not run sensors or reasoning
-  in the background; it reads the database written by `alice run`.
+  in the background; it reads the database written by `alice run`. Chat is
+  user-initiated and budgeted, not a background agent.
+- Chat answers are only as good as the local context. If the ledger has no
+  matching event, memory, suggestion, or digest entry, Alice should say so.
+- Suggestion steps are model-generated advice. Alice does not run them.
 - Encrypted backups use Windows DPAPI and are therefore per-user and
   per-machine. Copying a `.alicebak` to another account will not restore.
 - A whole-drive scan is broad by design. It is bounded by `max_files`,

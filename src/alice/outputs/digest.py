@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -102,10 +103,24 @@ class DigestWriter:
         else:
             for row in suggestions:
                 reason = f" — {row['reason']}" if row["reason"] else ""
+                meta = []
+                if row["category"]:
+                    meta.append(str(row["category"]))
+                if row["confidence"] is not None:
+                    meta.append(f"confidence {float(row['confidence']):.2f}")
+                meta_text = f" ({', '.join(meta)})" if meta else ""
                 lines.append(
                     f"- **[P{row['priority']}]** {row['text']}{reason} "
-                    f"(`{row['status']}`)"
+                    f"(`{row['status']}`){meta_text}"
                 )
+                try:
+                    steps = json.loads(row["steps"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    steps = []
+                for index, step in enumerate(steps, start=1):
+                    lines.append(f"  {index}. {step}")
+                if row["evidence"]:
+                    lines.append(f"  - evidence: {row['evidence']}")
         lines.extend(
             [
                 "",

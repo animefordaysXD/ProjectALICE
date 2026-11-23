@@ -59,7 +59,7 @@ def test_dashboard_snapshot(conn) -> None:
 
     dashboard = load_dashboard(settings, connection)
 
-    assert dashboard.schema_version == 7
+    assert dashboard.schema_version == 8
     assert dashboard.status_counts["escalated"] == 1
     assert dashboard.new_above_gate == 0
     assert dashboard.queued_suggestions == 1

@@ -7,9 +7,10 @@ other module.
   `consolidate`, `backup`, `report`, `startup`, `gui`.
 - `settings.py`: composes per-module config into `AppSettings`.
 - `bootstrap.py`: opens the database and wires sensors → gate → ledger, models,
-  memory, reasoning, consolidation, backup, and delivery.
+  memory, reasoning, consolidation, backup, chat, and delivery.
 - `dashboard.py`: read-only dashboard data.
-- `gui.py`: Tkinter dashboard. Read-only plus explicit admin actions.
+- `gui.py`: Tkinter dashboard with suggestion actions and chat. Read-only plus
+  explicit admin actions.
 - Future: a service host if toasts and per-user DPAPI stop being requirements.
 
 Owns no tables and contains no domain policy.

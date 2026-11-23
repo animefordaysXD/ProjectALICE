@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,6 +34,10 @@ class SuggestionRow:
     status: str
     text: str
     reason: str | None
+    steps: tuple[str, ...] = ()
+    evidence: str | None = None
+    category: str | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -134,10 +139,14 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
             status=str(row["status"]),
             text=str(row["text"]),
             reason=row["reason"],
+            steps=_steps(row["steps"]),
+            evidence=row["evidence"],
+            category=row["category"],
+            confidence=row["confidence"],
         )
         for row in conn.execute(
-            "SELECT id, priority, status, text, reason FROM suggestions "
-            "ORDER BY id DESC LIMIT 100"
+            "SELECT id, priority, status, text, reason, steps, evidence, "
+            "category, confidence FROM suggestions ORDER BY id DESC LIMIT 100"
         )
     )
     approved = tuple(
@@ -209,6 +218,16 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         digest_text=digest_text,
         last_consolidation=last_consolidation,
     )
+
+
+def _steps(raw: object) -> tuple[str, ...]:
+    try:
+        values = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return ()
+    if not isinstance(values, list):
+        return ()
+    return tuple(str(value) for value in values if str(value).strip())
 
 
 def _has_table(conn: sqlite3.Connection, name: str) -> bool:

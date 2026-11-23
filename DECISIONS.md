@@ -816,6 +816,61 @@ ten-minute cooldown after the first timeout or exception; the first attempt
 costs at most five seconds and the rest return immediately. Suggestions stay
 queued, so the digest remains the durable channel.
 
+## 2026-11-23 — structured suggestions and local chat
+
+### Suggestions become runbooks, not slogans
+
+Reasoning now returns optional `steps`, `evidence`, `category`, and
+`confidence` alongside text/priority/reason. The schema is still validated
+strictly: at most six steps, bounded lengths, a fixed category set, and
+confidence in [0,1]. This keeps the model's advice concrete without letting it
+invent unbounded output or claim actions.
+
+The GUI exposes the details and adds explicit user administration:
+
+- mark done;
+- dismiss;
+- copy the full runbook (including steps and evidence) to the clipboard;
+- save a chat answer as a new suggestion.
+
+None of these change the machine. They only change the local suggestion state
+or clipboard.
+
+### Chat is a read-only, budgeted exception
+
+Chat is a new interaction surface, but it follows the same rule as the rest of
+Alice: **advise, never act**.
+
+- Each question makes one `reason`-tier call through the existing router and
+  budget guard, so the kill switch and caps still apply.
+- Context is assembled locally from hard memory, archive recall, open
+  suggestions, high-salience events, today's digest, and the last few turns.
+- The prompt forbids claiming actions and requires saying when context is
+  insufficient.
+- Chat has no tools. It cannot open files, run commands, send messages, write
+  memory, or change settings.
+- Transcripts are stored in `chat_messages` on the local database. Citations
+  are stored with each answer for auditability.
+- The GUI runs the call on a background thread with its own SQLite connection,
+  then reloads history; a slow model never blocks the dashboard loop.
+- Raw text is still not sent. Chat sees the redacted ledger and sanitized
+  memory, just like triage and reasoning.
+
+`do not act` is unchanged. The chat answer may suggest steps the user can take;
+the user performs them.
+
+### Schema
+
+Migration `008_chat` adds the suggestion detail columns, `status_changed`, and
+`chat_messages`. Chat history is local and prunable by the Clear button. The
+schema is v8 with 14 tables.
+
+### Tests
+
+New coverage: chat context assembly and persistence, citations, error handling,
+clear, structured suggestion parsing and validation, and the richer queue
+fields. The suite is 331 tests.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

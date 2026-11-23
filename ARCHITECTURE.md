@@ -104,8 +104,9 @@ src/alice/
     json_output.py         JSON object extraction
     prompts.py             prompts for triage, reasoning, consolidation
     triage.py              Tier 1 batching and decisions
-    reason.py              Tier 2 escalation reasoning
+    reason.py              Tier 2 escalation reasoning and structured suggestions
     consolidate.py         Tier 3 nightly summaries and proposals
+    chat.py                read-only chat over ledger, memory, and suggestions
   outputs/                 how Alice tells Jo
     __init__.py
     config.py              notify mode, quiet hours, toast limits
@@ -279,6 +280,7 @@ SQL.
 | `memory_embeddings` | memory | memory | memory |
 | `triage_batches` | brain | brain | brain |
 | `consolidation_runs` | brain | brain | brain/status |
+| `chat_messages` | brain | brain chat | GUI/chat |
 | `backup_runs` | core | core backup service | status/backup |
 | `suggestions` | outputs | outputs | outputs |
 | `budget_alerts` | models | models | models/status/digest |
@@ -384,4 +386,4 @@ A module is "separate" when all of these are true:
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 327-test suite is the safety net.
+the boundaries move; the 331-test suite is the safety net.

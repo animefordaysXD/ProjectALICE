@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
+import threading
 from datetime import datetime
 from pathlib import Path
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from ..brain.chat import load_chat_history
+from ..contracts.outputs import Suggestion
 from ..core.db import connect, init_db
 from ..core.logging import setup_logging
 from ..memory.core_file import CoreMemory
@@ -18,6 +22,7 @@ from ..memory.service import MemoryService
 from ..models.budget import BudgetGuard, clear_pause, set_pause
 from ..outputs.digest import DigestWriter
 from ..outputs.notify import NullNotifier
+from ..outputs.queue import SuggestionQueue
 from .dashboard import Dashboard, load_dashboard
 from .settings import AppSettings, load_settings
 
@@ -39,6 +44,10 @@ class AliceWindow:
         self.dashboard: Dashboard | None = None
         self._after_id: str | None = None
         self._digest_text = ""
+        self._chat_messages = ()
+        self._chat_queue: queue.Queue = queue.Queue()
+        self._chat_pending = False
+        self._chat_poll_id: str | None = None
 
         self.root.title("Alice")
         self.root.geometry("1180x780")
@@ -47,6 +56,7 @@ class AliceWindow:
         self._style()
         self._build()
         self.refresh()
+        self._load_chat_history()
         self._after_id = self.root.after(5000, self._tick)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -126,6 +136,7 @@ class AliceWindow:
         self.tabs.pack(fill="both", expand=True)
         self._build_events_tab()
         self._build_suggestions_tab()
+        self._build_chat_tab()
         self._build_memory_tab()
         self._build_digest_tab()
 
@@ -176,15 +187,106 @@ class AliceWindow:
     def _build_suggestions_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(tab, text="Suggestions")
+        panes = ttk.PanedWindow(tab, orient="vertical")
+        panes.pack(fill="both", expand=True)
+        top = ttk.Frame(panes)
+        bottom = ttk.LabelFrame(panes, text="Selected suggestion", padding=8)
+        panes.add(top, weight=3)
+        panes.add(bottom, weight=2)
+
         self.suggestion_tree = self._tree(
-            tab,
+            top,
             [
-                ("id", "ID", 50),
-                ("priority", "P", 40),
-                ("status", "Status", 80),
-                ("text", "Suggestion", 500),
-                ("reason", "Reason", 300),
+                ("id", "ID", 45),
+                ("priority", "P", 35),
+                ("status", "Status", 75),
+                ("category", "Category", 90),
+                ("confidence", "Conf", 55),
+                ("text", "Suggestion", 460),
+                ("reason", "Reason", 260),
             ],
+        )
+        self.suggestion_tree.bind("<<TreeviewSelect>>", self._show_suggestion_detail)
+
+        self.suggestion_detail = tk.Text(
+            bottom,
+            wrap="word",
+            height=9,
+            font=("Segoe UI", 9),
+            background=CARD_BG,
+            foreground=INK,
+            relief="flat",
+            padx=8,
+            pady=6,
+            state="disabled",
+        )
+        self.suggestion_detail.pack(fill="both", expand=True)
+        buttons = ttk.Frame(bottom)
+        buttons.pack(fill="x", pady=(6, 0))
+        ttk.Button(buttons, text="Mark done", command=lambda: self._set_suggestion("done")).pack(side="left")
+        ttk.Button(buttons, text="Dismiss", command=lambda: self._set_suggestion("dismissed")).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Copy suggestion", command=self._copy_suggestion).pack(side="left")
+        ttk.Button(buttons, text="Save answer as suggestion", command=self._save_chat_as_suggestion).pack(side="right")
+
+    def _build_chat_tab(self) -> None:
+        tab = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(tab, text="Chat")
+        info = ttk.Frame(tab)
+        info.pack(fill="x", pady=(0, 6))
+        ttk.Label(
+            info,
+            text="Ask about events, suggestions, memory, or the digest. "
+            "Alice is read-only: chat can advise, not act.",
+            style="Sub.TLabel",
+        ).pack(side="left")
+
+        frame = ttk.Frame(tab)
+        frame.pack(fill="both", expand=True)
+        self.chat_text = tk.Text(
+            frame,
+            wrap="word",
+            font=("Segoe UI", 10),
+            background=CARD_BG,
+            foreground=INK,
+            relief="flat",
+            padx=12,
+            pady=10,
+            state="disabled",
+        )
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=self.chat_text.yview)
+        self.chat_text.configure(yscrollcommand=scroll.set)
+        self.chat_text.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.chat_text.tag_configure("user", foreground=ACCENT, font=("Segoe UI Semibold", 10))
+        self.chat_text.tag_configure("assistant", foreground=INK)
+        self.chat_text.tag_configure("meta", foreground=MUTED, font=("Segoe UI", 8))
+
+        input_frame = ttk.Frame(tab)
+        input_frame.pack(fill="x", pady=(8, 0))
+        self.chat_input = tk.Text(
+            input_frame,
+            height=3,
+            wrap="word",
+            font=("Segoe UI", 10),
+            background=CARD_BG,
+            foreground=INK,
+            relief="flat",
+            padx=8,
+            pady=6,
+        )
+        self.chat_input.pack(side="left", fill="both", expand=True)
+        self.chat_input.bind("<Control-Return>", self._send_chat_event)
+        buttons = ttk.Frame(input_frame)
+        buttons.pack(side="right", fill="y", padx=(8, 0))
+        self.chat_send_button = ttk.Button(buttons, text="Send", command=self._send_chat)
+        self.chat_send_button.pack(fill="x")
+        ttk.Button(buttons, text="Clear", command=self._clear_chat).pack(fill="x", pady=(6, 0))
+        ttk.Button(buttons, text="Save answer", command=self._save_chat_as_suggestion).pack(
+            fill="x", pady=(6, 0)
+        )
+        self.chat_status = tk.StringVar(value="Ready")
+        ttk.Label(tab, textvariable=self.chat_status, style="Sub.TLabel").pack(
+            anchor="w", pady=(6, 0)
         )
 
     def _build_memory_tab(self) -> None:
@@ -306,20 +408,241 @@ class AliceWindow:
             )
 
     def _fill_suggestions(self, dashboard: Dashboard) -> None:
+        selected = self._selected_suggestion_id()
         self._clear(self.suggestion_tree)
         for suggestion in dashboard.suggestions:
-            self.suggestion_tree.insert(
+            item = self.suggestion_tree.insert(
                 "",
                 "end",
                 values=(
                     suggestion.id,
                     suggestion.priority,
                     suggestion.status,
+                    suggestion.category or "-",
+                    f"{suggestion.confidence:.2f}" if suggestion.confidence is not None else "-",
                     suggestion.text,
                     suggestion.reason or "",
                 ),
                 tags=(f"p{suggestion.priority}",),
             )
+            if selected is not None and suggestion.id == selected:
+                self.suggestion_tree.selection_set(item)
+                self.suggestion_tree.focus(item)
+        self._show_suggestion_detail()
+
+    def _suggestion_by_id(self, suggestion_id: int):
+        if self.dashboard is None:
+            return None
+        for suggestion in self.dashboard.suggestions:
+            if suggestion.id == suggestion_id:
+                return suggestion
+        return None
+
+    def _selected_suggestion_id(self) -> int | None:
+        selection = self.suggestion_tree.selection()
+        if not selection:
+            return None
+        values = self.suggestion_tree.item(selection[0], "values")
+        return int(values[0])
+
+    def _show_suggestion_detail(self, _event=None) -> None:
+        suggestion_id = self._selected_suggestion_id()
+        suggestion = self._suggestion_by_id(suggestion_id) if suggestion_id else None
+        if suggestion is None:
+            text = "Select a suggestion to inspect its steps and evidence."
+        else:
+            meta = [f"P{suggestion.priority}", suggestion.status]
+            if suggestion.category:
+                meta.append(suggestion.category)
+            if suggestion.confidence is not None:
+                meta.append(f"confidence {suggestion.confidence:.2f}")
+            lines = [
+                " · ".join(meta),
+                "",
+                suggestion.text,
+            ]
+            if suggestion.reason:
+                lines.extend(["", f"Why: {suggestion.reason}"])
+            if suggestion.steps:
+                lines.extend(["", "Steps:"])
+                lines.extend(
+                    f"{index}. {step}" for index, step in enumerate(suggestion.steps, 1)
+                )
+            if suggestion.evidence:
+                lines.extend(["", f"Evidence: {suggestion.evidence}"])
+            text = "\n".join(lines)
+        self.suggestion_detail.configure(state="normal")
+        self.suggestion_detail.delete("1.0", "end")
+        self.suggestion_detail.insert("1.0", text)
+        self.suggestion_detail.configure(state="disabled")
+
+    def _set_suggestion(self, status: str) -> None:
+        suggestion_id = self._selected_suggestion_id()
+        if suggestion_id is None:
+            messagebox.showinfo("Alice", "Select a suggestion first.")
+            return
+        try:
+            SuggestionQueue(self.conn).set_status(suggestion_id, status)
+        except Exception as exc:
+            messagebox.showerror("Alice", str(exc))
+            return
+        self.footer.set(f"Suggestion {suggestion_id} marked {status}.")
+        self.refresh()
+
+    def _copy_suggestion(self) -> None:
+        suggestion_id = self._selected_suggestion_id()
+        suggestion = self._suggestion_by_id(suggestion_id) if suggestion_id else None
+        if suggestion is None:
+            messagebox.showinfo("Alice", "Select a suggestion first.")
+            return
+        lines = [suggestion.text]
+        if suggestion.reason:
+            lines.append(f"Why: {suggestion.reason}")
+        for index, step in enumerate(suggestion.steps, 1):
+            lines.append(f"{index}. {step}")
+        if suggestion.evidence:
+            lines.append(f"Evidence: {suggestion.evidence}")
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(lines))
+        self.footer.set(f"Suggestion {suggestion.id} copied to the clipboard.")
+
+    # -- chat --------------------------------------------------------------
+
+    def _load_chat_history(self) -> None:
+        try:
+            self._chat_messages = load_chat_history(self.conn, 200)
+        except Exception:
+            logger.exception("could not load chat history")
+            self._chat_messages = ()
+        self._render_chat()
+
+    def _render_chat(self) -> None:
+        self.chat_text.configure(state="normal")
+        self.chat_text.delete("1.0", "end")
+        if not self._chat_messages:
+            self.chat_text.insert(
+                "end",
+                "No chat yet. Ask about an event, a suggestion, or what Alice remembers.",
+                "meta",
+            )
+        for message in self._chat_messages:
+            who = "You" if message.role == "user" else "Alice"
+            self.chat_text.insert("end", f"{who}\n", "user" if message.role == "user" else "assistant")
+            self.chat_text.insert("end", message.content + "\n", "assistant")
+            if message.error:
+                self.chat_text.insert("end", f"[error: {message.error}]\n", "meta")
+            if message.citations:
+                labels = []
+                for citation in message.citations:
+                    label = citation.get("label") if isinstance(citation, dict) else None
+                    if label:
+                        labels.append(str(label))
+                if labels:
+                    self.chat_text.insert(
+                        "end",
+                        "Sources: " + " · ".join(labels[:6]) + "\n",
+                        "meta",
+                    )
+            self.chat_text.insert("end", "\n")
+        self.chat_text.configure(state="disabled")
+        self.chat_text.see("end")
+
+    def _send_chat_event(self, _event=None) -> str:
+        self._send_chat()
+        return "break"
+
+    def _send_chat(self) -> None:
+        if self._chat_pending:
+            return
+        question = self.chat_input.get("1.0", "end").strip()
+        if not question:
+            self.chat_status.set("Type a question first.")
+            return
+        self.chat_input.delete("1.0", "end")
+        self._chat_pending = True
+        self.chat_send_button.configure(state="disabled")
+        self.chat_status.set("Alice is thinking; this is a budgeted model call...")
+        self.chat_text.configure(state="normal")
+        self.chat_text.insert("end", "You\n", "user")
+        self.chat_text.insert("end", question + "\n\n", "assistant")
+        self.chat_text.configure(state="disabled")
+        self.chat_text.see("end")
+
+        def worker() -> None:
+            chat_conn = None
+            try:
+                from .bootstrap import build_chat, build_memory, build_models
+
+                chat_conn = connect(self.settings.db_path, create=False)
+                router = build_models(self.settings, chat_conn)
+                memory = build_memory(self.settings, chat_conn)
+                service = build_chat(self.settings, chat_conn, router, memory)
+                result = service.ask(question)
+            except Exception as exc:
+                self._chat_queue.put((None, exc))
+            else:
+                self._chat_queue.put((result, None))
+            finally:
+                if chat_conn is not None:
+                    chat_conn.close()
+
+        threading.Thread(target=worker, name="alice-chat", daemon=True).start()
+        self._chat_poll_id = self.root.after(250, self._poll_chat)
+
+    def _poll_chat(self) -> None:
+        try:
+            result, error = self._chat_queue.get_nowait()
+        except queue.Empty:
+            self._chat_poll_id = self.root.after(250, self._poll_chat)
+            return
+        self._chat_pending = False
+        self.chat_send_button.configure(state="normal")
+        if error is not None:
+            self.chat_status.set(f"Chat failed: {error}")
+        else:
+            self.chat_status.set(
+                f"Answered · {result.input_tokens:,} in / "
+                f"{result.output_tokens:,} out · ${result.cost_usd:.4f}"
+            )
+        self._load_chat_history()
+        self.refresh()
+
+    def _clear_chat(self) -> None:
+        if not messagebox.askyesno("Alice", "Clear the local chat transcript?"):
+            return
+        self.conn.execute("DELETE FROM chat_messages")
+        self.conn.commit()
+        self._chat_messages = ()
+        self._render_chat()
+        self.chat_status.set("Chat cleared.")
+
+    def _save_chat_as_suggestion(self) -> None:
+        assistant = next(
+            (
+                message
+                for message in reversed(self._chat_messages)
+                if message.role == "assistant" and not message.error
+            ),
+            None,
+        )
+        if assistant is None:
+            messagebox.showinfo("Alice", "There is no assistant answer to save yet.")
+            return
+        try:
+            suggestion_id = SuggestionQueue(self.conn).submit(
+                Suggestion(
+                    text=assistant.content.strip()[:2000],
+                    priority=2,
+                    reason="Saved from chat",
+                    category="workflow",
+                )
+            )
+        except Exception as exc:
+            messagebox.showerror("Alice", str(exc))
+            return
+        self.footer.set(f"Saved chat answer as suggestion {suggestion_id}.")
+        self.chat_status.set(f"Saved as suggestion {suggestion_id}.")
+        self.refresh()
 
     def _fill_memory(self, dashboard: Dashboard) -> None:
         self._clear(self.approved_tree)
@@ -438,6 +761,8 @@ class AliceWindow:
     def close(self) -> None:
         if self._after_id is not None:
             self.root.after_cancel(self._after_id)
+        if self._chat_poll_id is not None:
+            self.root.after_cancel(self._chat_poll_id)
         try:
             self.conn.close()
         finally:

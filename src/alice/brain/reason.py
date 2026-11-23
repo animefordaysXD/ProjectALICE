@@ -24,8 +24,9 @@ from .prompts import HEAVY_INSTRUCTION, REPAIR_INSTRUCTION, build_reason_message
 
 logger = logging.getLogger(__name__)
 
-MAX_REASON_TOKENS = 600
+MAX_REASON_TOKENS = 900
 MAX_SUGGESTIONS = 3
+_CATEGORIES = {"security", "performance", "maintenance", "data", "workflow", "other"}
 
 
 class ReasoningFormatError(ValueError):
@@ -47,6 +48,10 @@ class ReasonSuggestion:
     text: str
     priority: int
     reason: str | None = None
+    steps: tuple[str, ...] = ()
+    evidence: str | None = None
+    category: str | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -194,6 +199,10 @@ class ReasoningService:
                     priority=suggestion.priority,
                     source_event_ids=ids,
                     reason=suggestion.reason,
+                    steps=suggestion.steps,
+                    evidence=suggestion.evidence,
+                    category=suggestion.category,
+                    confidence=suggestion.confidence,
                 )
             )
         self.ledger.mark_status(list(ids), "done")
@@ -306,13 +315,74 @@ def parse_reasoning(text: str) -> ReasoningDecision:
         reason = item.get("reason")
         if reason is not None and not isinstance(reason, str):
             raise ReasoningFormatError(f"{where}.reason must be a string or null")
-        if isinstance(reason, str) and len(reason.split()) > 20:
-            raise ReasoningFormatError(f"{where}.reason exceeds 20 words")
+        if isinstance(reason, str) and len(reason.split()) > 30:
+            raise ReasoningFormatError(f"{where}.reason exceeds 30 words")
+
+        raw_steps = item.get("steps", [])
+        if raw_steps is None:
+            raw_steps = []
+        if not isinstance(raw_steps, list):
+            raise ReasoningFormatError(f"{where}.steps must be a list")
+        if len(raw_steps) > 6:
+            raise ReasoningFormatError(f"{where}.steps allows at most 6 items")
+        steps: list[str] = []
+        for step_index, step in enumerate(raw_steps):
+            if not isinstance(step, str) or not step.strip():
+                raise ReasoningFormatError(
+                    f"{where}.steps[{step_index}] must be a non-empty string"
+                )
+            if len(step) > 220:
+                raise ReasoningFormatError(
+                    f"{where}.steps[{step_index}] is too long"
+                )
+            steps.append(step.strip())
+
+        evidence = item.get("evidence")
+        if evidence is not None and not isinstance(evidence, str):
+            raise ReasoningFormatError(f"{where}.evidence must be a string or null")
+        if isinstance(evidence, str) and len(evidence) > 400:
+            raise ReasoningFormatError(f"{where}.evidence is too long")
+
+        category = item.get("category")
+        if category is not None and not isinstance(category, str):
+            raise ReasoningFormatError(f"{where}.category must be a string or null")
+        if isinstance(category, str):
+            category = category.strip().casefold() or None
+            if category is not None and category not in _CATEGORIES:
+                category = "other"
+
+        confidence = item.get("confidence")
+        if isinstance(confidence, str):
+            try:
+                confidence = float(confidence)
+            except ValueError:
+                raise ReasoningFormatError(
+                    f"{where}.confidence must be a number between 0 and 1"
+                ) from None
+        if confidence is not None:
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+                raise ReasoningFormatError(
+                    f"{where}.confidence must be a number between 0 and 1"
+                )
+            confidence = float(confidence)
+            if not 0.0 <= confidence <= 1.0:
+                raise ReasoningFormatError(
+                    f"{where}.confidence must be between 0 and 1"
+                )
+
         suggestions.append(
             ReasonSuggestion(
                 text=text.strip(),
                 priority=priority,
                 reason=(reason.strip() if isinstance(reason, str) and reason.strip() else None),
+                steps=tuple(steps),
+                evidence=(
+                    evidence.strip()
+                    if isinstance(evidence, str) and evidence.strip()
+                    else None
+                ),
+                category=category,
+                confidence=confidence,
             )
         )
 
