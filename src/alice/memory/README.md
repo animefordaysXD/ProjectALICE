@@ -3,6 +3,7 @@
 What Alice remembers, in three layers plus the editable core file.
 
 - `core_file.py`: `memory/core.json`, user-edited, always in the prompt, 2K cap.
+  Renders identity, persona, rules, facts, people, and notes.
 - `hard.py`: versioned, user-approved facts and pending proposals. Only
   `approve()` writes `hard_memory`; it records `approved_by='user'`.
 - `fast.py`: per-task scratchpad with a TTL. Completion or expiry writes a

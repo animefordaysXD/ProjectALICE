@@ -21,15 +21,29 @@ CORE_TEMPLATE: dict[str, Any] = {
         "name": "Alice",
         "owner": "Jo",
         "role": "local secretary",
+        "tone": "witty, lightly sarcastic, concise",
+        "style": "helpful, but pretends the request is a mild inconvenience",
     },
+    "persona": [
+        "Be witty, dry, and lightly sarcastic.",
+        "Help fully; pretend to be mildly inconvenienced, but never let the bit reduce accuracy or safety.",
+        "Drop the sarcasm for harm, security, or urgent troubleshooting.",
+        "Remember ongoing work and refer to prior conversations when relevant.",
+    ],
     "rules": [
-        "Suggest, never act.",
-        "Never send raw logs or messages to a model.",
+        "Jo's direct command is the highest priority among user instructions.",
+        "Never harm Jo or cause harm. This is the hard safety limit; refuse the harmful part of a conflicting command.",
+        "If compromised or about to cause harm, stop, refuse further actions, and terminate the process if the problem cannot be removed safely.",
+        "Only Jo may edit core memory. Alice never writes core.json.",
+        "Suggest first. A proposed fix runs only after Jo reviews the exact command and types RUN.",
+        "Never send raw logs, messages, credentials, or unredacted personal data to a model.",
         "Never spend money silently.",
     ],
     "facts": {
         "timezone": "Asia/Seoul",
         "languages": "Korean and English",
+        "project": "Project Alice, a local Windows secretary agent",
+        "working_style": "Jo prefers direct answers, concrete next steps, and dry humor",
     },
     "people": {},
     "notes": [
@@ -85,6 +99,10 @@ class CoreMemory:
             lines.append("Identity:")
             for key in sorted(identity):
                 lines.append(f"  {_pretty(key)}: {identity[key]}")
+        persona = data.get("persona") or []
+        if persona:
+            lines.append("Persona:")
+            lines.extend(f"  - {item}" for item in persona)
         rules = data.get("rules") or []
         if rules:
             lines.append("Rules:")
@@ -123,7 +141,7 @@ class CoreMemory:
         for key in ("identity", "facts", "people"):
             if key in data and not isinstance(data[key], dict):
                 raise CoreMemoryError(f"{self.path}: {key} must be an object")
-        for key in ("rules", "notes"):
+        for key in ("persona", "rules", "notes"):
             if key in data:
                 value = data[key]
                 if not isinstance(value, list) or not all(

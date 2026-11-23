@@ -950,6 +950,43 @@ list.
 This is a deliberate Phase 2 exception to "no actions": the user is the
 approver, the action is local, the command is visible, and every run is logged.
 
+## 2026-11-24 — persona, user authority, and long-term memory
+
+Jo asked for a personality and a core-memory rule set:
+
+- Jo's command is the highest priority among user instructions.
+- Alice must not harm Jo.
+- If compromised or about to cause harm, she should stop and terminate the
+  process if the problem cannot be removed safely.
+- Only Jo may edit core memory.
+- Alice should be witty, dry, lightly sarcastic, helpful, and pretend to be
+  mildly inconvenienced.
+
+The editable core JSON now has a `persona` section and tone/style identity
+fields. It is rendered in every prompt with the rules and facts. Fresh installs
+receive the same template and seed rules. The real core file was edited
+directly, as Jo requested; Alice still never writes it.
+
+Chat history in `chat_messages` is the durable record of actual interactions.
+Core memory holds the stable identity, persona, preferences, and project summary;
+it is not a transcript.
+
+Limits that are documented rather than hidden:
+
+- Core memory guides the model. It cannot make an LLM absolutely obedient. The
+  application's fix gate (exact command, typed RUN, allowlist, no shell) still
+  applies, and no model instruction bypasses it.
+- "Terminate the process if hacked" is a policy rule, not a reliable autonomous
+  detector. An LLM saying it feels compromised is not evidence. A hard panic
+  switch should be an explicit local control, not a model guess. No autonomous
+  self-kill was added.
+- "Only Jo may edit core memory" is enforced by the Windows account and by Alice
+  never writing the file. An operating-system administrator can still edit any
+  file; the OS account is the real security boundary.
+
+The no-harm rule is the hard limit when it conflicts with a command. The
+persona is a style layer only; it never excuses reduced accuracy or safety.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

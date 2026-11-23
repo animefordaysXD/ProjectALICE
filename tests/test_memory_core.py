@@ -29,6 +29,7 @@ def test_render_includes_sections_and_korean(tmp_path: Path) -> None:
             {
                 "version": 1,
                 "identity": {"name": "앨리스", "owner": "조"},
+                "persona": ["재치 있게 답한다"],
                 "rules": ["행동하지 말 것"],
                 "facts": {"project": "Alice"},
                 "people": {"동료": {"role": "developer"}},
@@ -43,6 +44,7 @@ def test_render_includes_sections_and_korean(tmp_path: Path) -> None:
 
     assert "[CORE MEMORY]" in text
     assert "앨리스" in text
+    assert "재치 있게 답한다" in text
     assert "행동하지 말 것" in text
     assert "Project: Alice" in text
     assert "동료" in text
