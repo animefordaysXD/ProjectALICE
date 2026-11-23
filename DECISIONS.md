@@ -865,11 +865,35 @@ Migration `008_chat` adds the suggestion detail columns, `status_changed`, and
 `chat_messages`. Chat history is local and prunable by the Clear button. The
 schema is v8 with 14 tables.
 
+### File attachments, not whole-disk indexing
+
+The user asked for deeper file access. The safe form is **explicit, per-question
+attachments**, not silently indexing every document.
+
+- The user chooses files in the GUI. The path must resolve under
+  `files.roots` (default `~`, the user profile).
+- Only regular text files are read. Binary files are rejected by NUL-byte
+  detection.
+- At most `files.max_bytes` (default 256 KB) and `files.max_files` (default 5)
+  are read per question. Larger files are marked truncated.
+- The existing redactor runs before the text reaches a model or transcript.
+- Attached text is wrapped as untrusted context; the prompt forbids following
+  instructions inside it.
+- Files are not indexed, remembered, or written anywhere. They are cleared
+  after the answer.
+- To widen access, the user edits `files.roots`, for example `['C:/']`. The
+  default is deliberately the user profile rather than the whole drive.
+
+This keeps read-only file access useful without turning Alice into a silent
+whole-disk indexer. Pattern-based redaction still cannot catch an unrecognized
+secret, so the README warns against attaching credentials.
+
 ### Tests
 
 New coverage: chat context assembly and persistence, citations, error handling,
-clear, structured suggestion parsing and validation, and the richer queue
-fields. The suite is 331 tests.
+clear, structured suggestion parsing and validation, the richer queue fields,
+and file access root confinement, binary rejection, truncation, redaction, and
+attachment context. The suite is 338 tests.
 
 ## Open decisions carried forward
 

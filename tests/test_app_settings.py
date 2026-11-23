@@ -54,6 +54,9 @@ def test_repo_config_loads() -> None:
     assert config.core.backup.dir == config.data_dir / "backups"
     assert config.core.backup.hour == 4
     assert config.core.backup.keep == 7
+    assert config.inputs.files.roots == (Path.home().resolve(),)
+    assert config.inputs.files.max_bytes == 262_144
+    assert config.inputs.files.max_files == 5
 
 
 def test_defaults_and_paths(config_path: Path) -> None:
@@ -174,6 +177,30 @@ def test_backup_section(config_path: Path) -> None:
     assert config.core.backup.dir == config.data_dir / "copies"
     assert config.core.backup.hour == 2
     assert config.core.backup.keep == 3
+
+
+def test_files_section(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8")
+        + "\nfiles: {roots: ['./docs'], max_bytes: 1000, max_files: 2}\n",
+    )
+
+    config = load_settings(config_path)
+
+    assert config.inputs.files.roots == (config.root / "docs",)
+    assert config.inputs.files.max_bytes == 1000
+    assert config.inputs.files.max_files == 2
+
+
+def test_bad_files_section(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8") + "\nfiles: {roots: []}\n",
+    )
+
+    with pytest.raises(ConfigError, match="files.roots"):
+        load_settings(config_path)
 
 
 def test_bad_backup_hour(config_path: Path) -> None:

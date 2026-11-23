@@ -76,7 +76,12 @@ class ChatService:
         self.conn.execute("DELETE FROM chat_messages")
         self.conn.commit()
 
-    def ask(self, question: str) -> ChatResult:
+    def ask(
+        self,
+        question: str,
+        *,
+        attachments: Sequence[tuple[str, str]] = (),
+    ) -> ChatResult:
         text = question.strip()
         if not text:
             raise ChatError("Ask a question first.")
@@ -86,7 +91,7 @@ class ChatService:
         prior = self.history(MAX_HISTORY_TURNS) if _has_table(self.conn, "chat_messages") else ()
         user = self._save("user", text, ())
 
-        context_data = self._build_context(text)
+        context_data = self._build_context(text, attachments)
         messages, prefix_len = build_chat_messages(
             text,
             context=self._format_context(context_data),
@@ -132,7 +137,9 @@ class ChatService:
 
     # -- context -----------------------------------------------------------
 
-    def _build_context(self, question: str) -> dict:
+    def _build_context(
+        self, question: str, attachments: Sequence[tuple[str, str]] = ()
+    ) -> dict:
         hard = ""
         try:
             hard = self.hard_memory()
@@ -181,6 +188,7 @@ class ChatService:
             "suggestions": suggestions,
             "events": events,
             "digest": digest,
+            "attachments": tuple(attachments),
         }
 
     def _format_context(self, context: dict) -> str:
@@ -227,6 +235,15 @@ class ChatService:
                     f"{row['text_redacted'][:400]}"
                 )
             lines.append("</recent_events>")
+            parts.append("\n".join(lines))
+        attachments = context.get("attachments") or ()
+        if attachments:
+            lines = ["<attached_files>"]
+            for label, content in attachments:
+                lines.append(f"<file path=\"{label}\">")
+                lines.append(content)
+                lines.append("</file>")
+            lines.append("</attached_files>")
             parts.append("\n".join(lines))
         digest = str(context.get("digest") or "").strip()
         if digest:
@@ -304,6 +321,14 @@ def _citations(context: dict) -> tuple[dict, ...]:
                 "kind": "event",
                 "id": int(row["id"]),
                 "label": f"{row['source']}: {row['text_redacted'][:120]}",
+            }
+        )
+    for label, _ in context.get("attachments", ()):
+        citations.append(
+            {
+                "kind": "file",
+                "id": label,
+                "label": f"file: {label}",
             }
         )
     return tuple(citations)

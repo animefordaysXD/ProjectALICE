@@ -10,12 +10,14 @@ from datetime import datetime
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from ..brain.chat import load_chat_history
 from ..contracts.outputs import Suggestion
 from ..core.db import connect, init_db
 from ..core.logging import setup_logging
+from ..inputs.files import FileReader
+from ..inputs.redact import Redactor
 from ..memory.core_file import CoreMemory
 from ..memory.seed import ensure_seed_files
 from ..memory.service import MemoryService
@@ -48,6 +50,8 @@ class AliceWindow:
         self._chat_queue: queue.Queue = queue.Queue()
         self._chat_pending = False
         self._chat_poll_id: str | None = None
+        self._chat_attachments: list[Path] = []
+        self._pending_attachments: list[Path] = []
 
         self.root.title("Alice")
         self.root.geometry("1180x780")
@@ -239,6 +243,19 @@ class AliceWindow:
             "Alice is read-only: chat can advise, not act.",
             style="Sub.TLabel",
         ).pack(side="left")
+
+        attach_row = ttk.Frame(tab)
+        attach_row.pack(fill="x", pady=(0, 6))
+        ttk.Button(
+            attach_row, text="Attach file...", command=self._attach_chat_file
+        ).pack(side="left")
+        ttk.Button(
+            attach_row, text="Remove file", command=self._clear_chat_attachments
+        ).pack(side="left", padx=6)
+        self.chat_attachment_var = tk.StringVar(value="No file attached")
+        ttk.Label(
+            attach_row, textvariable=self.chat_attachment_var, style="Sub.TLabel"
+        ).pack(side="left", padx=6)
 
         frame = ttk.Frame(tab)
         frame.pack(fill="both", expand=True)
@@ -551,6 +568,34 @@ class AliceWindow:
         self._send_chat()
         return "break"
 
+    def _attach_chat_file(self) -> None:
+        paths = filedialog.askopenfilenames(
+            title="Attach a text file for Alice to read",
+            filetypes=[
+                (
+                    "Text files",
+                    "*.txt *.md *.log *.json *.jsonl *.csv *.py *.yaml *.yml",
+                ),
+                ("All files", "*.*"),
+            ],
+        )
+        if not paths:
+            return
+        limit = self.settings.inputs.files.max_files
+        if len(paths) > limit:
+            messagebox.showinfo(
+                "Alice", f"Attach at most {limit} files per chat question."
+            )
+            return
+        self._chat_attachments = [Path(path) for path in paths]
+        names = ", ".join(path.name for path in self._chat_attachments)
+        self.chat_attachment_var.set(f"Attached: {names}")
+
+    def _clear_chat_attachments(self) -> None:
+        self._chat_attachments = []
+        self._pending_attachments = []
+        self.chat_attachment_var.set("No file attached")
+
     def _send_chat(self) -> None:
         if self._chat_pending:
             return
@@ -560,8 +605,14 @@ class AliceWindow:
             return
         self.chat_input.delete("1.0", "end")
         self._chat_pending = True
+        self._pending_attachments = list(self._chat_attachments)
         self.chat_send_button.configure(state="disabled")
-        self.chat_status.set("Alice is thinking; this is a budgeted model call...")
+        if self._pending_attachments:
+            self.chat_status.set(
+                "Alice is reading the attached file and thinking; this is a budgeted model call..."
+            )
+        else:
+            self.chat_status.set("Alice is thinking; this is a budgeted model call...")
         self.chat_text.configure(state="normal")
         self.chat_text.insert("end", "You\n", "user")
         self.chat_text.insert("end", question + "\n\n", "assistant")
@@ -573,11 +624,23 @@ class AliceWindow:
             try:
                 from .bootstrap import build_chat, build_memory, build_models
 
+                redactor = Redactor(self.settings.inputs.redaction.patterns)
+                reader = FileReader(
+                    self.settings.inputs.files,
+                    sanitize=lambda value: redactor.redact(value).text,
+                )
+                files = (
+                    reader.read_many(self._pending_attachments)
+                    if self._pending_attachments
+                    else ()
+                )
+                attachments = tuple((str(item.path), item.text) for item in files)
+
                 chat_conn = connect(self.settings.db_path, create=False)
                 router = build_models(self.settings, chat_conn)
                 memory = build_memory(self.settings, chat_conn)
                 service = build_chat(self.settings, chat_conn, router, memory)
-                result = service.ask(question)
+                result = service.ask(question, attachments=attachments)
             except Exception as exc:
                 self._chat_queue.put((None, exc))
             else:
@@ -604,6 +667,7 @@ class AliceWindow:
                 f"Answered · {result.input_tokens:,} in / "
                 f"{result.output_tokens:,} out · ${result.cost_usd:.4f}"
             )
+            self._clear_chat_attachments()
         self._load_chat_history()
         self.refresh()
 
@@ -613,6 +677,7 @@ class AliceWindow:
         self.conn.execute("DELETE FROM chat_messages")
         self.conn.commit()
         self._chat_messages = ()
+        self._clear_chat_attachments()
         self._render_chat()
         self.chat_status.set("Chat cleared.")
 

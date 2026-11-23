@@ -74,6 +74,7 @@ src/alice/
     __init__.py            sensor factory + poll loop
     gate.py                normalization, dedupe, salience
     redact.py              PII and secret masking
+    files.py               read-only, root-confined chat attachments
     sensors/
       base.py              Sensor interface
       common.py            cursor encoding, head hashes
@@ -168,9 +169,10 @@ Turns the outside world into ledger events. Read-only and model-free.
 - The poll → redact → gate → ledger loop.
 
 Owns no tables (writes through `core.events`).
-Config sections: `sources`, `gate`, `redaction`.
+Config sections: `sources`, `gate`, `redaction`, `files`.
 Depends on: `contracts`, `core`.
-Must not: call a model, write files outside `state`, mutate user files.
+Must not: call a model, write files outside `state`, mutate user files. File
+attachments are read-only, root-confined, redacted, and never indexed.
 
 ### memory
 
@@ -322,7 +324,7 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 | --- | --- | --- |
 | top-level paths, retention, backup | core | done |
 | `models`, `budget` | models | done |
-| `sources`, `gate`, `redaction` | inputs | done |
+| `sources`, `gate`, `redaction`, `files` | inputs | done |
 | `triage` | brain | done |
 | `consolidation` | brain | done |
 | `notify` | outputs | done |
@@ -386,4 +388,4 @@ A module is "separate" when all of these are true:
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 331-test suite is the safety net.
+the boundaries move; the 338-test suite is the safety net.

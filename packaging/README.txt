@@ -55,9 +55,11 @@ First run
    cache\; later runs reuse it.
 5. Double-click "Alice GUI.cmd" for the read-only desktop dashboard.
    The Chat tab answers questions about events, suggestions, memory, and the
-   digest. Chat is user-initiated and budgeted; it cannot act on the computer.
-   The Suggestions tab shows steps/evidence and lets you mark items done or
-   dismiss them, copy them, or save a chat answer as a new suggestion.
+   digest. Use "Attach file..." to give Alice a text file for that question;
+   files are read-only, redacted, size-capped, and never indexed. Chat is
+   user-initiated and budgeted; it cannot act on the computer. The Suggestions
+   tab shows steps/evidence and lets you mark items done or dismiss them, copy
+   them, or save a chat answer as a new suggestion.
 6. Optional: double-click "Install startup.cmd" to run Alice hidden at logon.
    "Remove startup.cmd" unregisters it. Windows Task Scheduler is used because
    toasts need the signed-in user's session.
@@ -98,6 +100,9 @@ Notes
   the digest still works.
 - The GUI is a local read-only dashboard. "Alice GUI.cmd" opens alice-gui.exe;
   it does not run sensors or reasoning in the background.
+- File attachments are limited to `files.roots` in config\alice.yaml (default
+  your user profile) and are not indexed. Do not attach credentials or key
+  material; redaction is pattern-based.
 - Alice automatically moves an old `state` folder from this app directory into
   the per-user data folder on first start. If both already contain data, it
   leaves the old folder alone and logs a warning.

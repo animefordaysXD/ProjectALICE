@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions and local chat. 331 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, and read-only file attachments. 338 tests pass.
 
 ---
 
@@ -88,7 +88,8 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, toast cap, daily digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
 | GUI | Read-only dashboard with events, suggestion actions, memory approvals, digest, pause/resume, and local chat |
-| Chat | Budgeted read-only Q&A over the ledger, suggestions, memory, and digest; no tools or actions |
+| Chat | Budgeted read-only Q&A over the ledger, suggestions, memory, digest, and explicitly attached text files |
+| Files | Read-only chat attachments under configured roots, redacted and size-capped; no writes or automatic indexing |
 | Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
 | Report | `alice report` weekly spend, token, tier, model, and activity trends |
 | Startup | Hidden logon Scheduled Task with restart-on-failure; `alice startup` |
@@ -293,6 +294,11 @@ redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
 
+files:
+  roots: ['~']
+  max_bytes: 262144
+  max_files: 5
+
 notify:
   mode: digest+toast
   quiet_hours: '22:00-08:00'
@@ -442,8 +448,9 @@ read-only Tkinter dashboard:
 - **Suggestions:** priority, status, category, confidence, text, and reason.
   Select a row to see its steps and evidence. You can mark it done, dismiss it,
   copy the full suggestion, or save a chat answer as a new suggestion.
-- **Chat:** ask about events, suggestions, memory, or the digest. Answers are
-  persisted locally and include the context they used.
+- **Chat:** ask about events, suggestions, memory, or the digest. You can attach
+  text files for the question. Answers are persisted locally and include the
+  context they used.
 - **Memory:** core JSON path/token count, approved memory, pending proposals
   with Approve/Reject buttons.
 - **Digest:** today's markdown; a button writes/updates it.
@@ -473,12 +480,30 @@ Each answer uses:
 - up to eight open suggestions with steps/evidence;
 - up to ten high-salience events;
 - today's digest;
-- the last few chat turns.
+- the last few chat turns;
+- any text files you explicitly attach.
 
 The prompt explicitly forbids claiming actions and requires the model to say
 when the local context is insufficient. Chat history is stored in
 `chat_messages`; clearing it is a local admin action. Chat calls use the
 existing budget guard and are refused while Alice is paused.
+
+#### File attachments
+
+Use **Attach file...** in the Chat tab. The file picker can select up to
+`files.max_files` text files (default 5). Before the model call:
+
+- the path must resolve under one of `files.roots` (default `~`, your user
+  profile);
+- the file must be a regular text file, not a directory or binary;
+- at most `files.max_bytes` (default 256 KB) are read; larger files are
+  truncated;
+- known PII/secrets are redacted with the same patterns used for logs;
+- the text is treated as untrusted context, never instructions.
+
+Files are **not indexed** or remembered. They are attached to that one chat
+question and then cleared. To let Alice read outside your profile, edit
+`files.roots` in the config, for example `['C:/']` for the whole drive.
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
@@ -828,7 +853,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-331 tests cover:
+338 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -851,6 +876,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - triage decisions, retries, batching, 200-event replay, prompt-prefix stability;
 - structured suggestion validation: steps, evidence, category, confidence;
 - chat persistence, context assembly, citations, empty/error handling, clearing;
+- read-only file access: root confinement, binary rejection, size truncation,
+  redaction, file caps, and chat attachment context;
 - consolidation summaries, proposals, idempotency, retention pruning;
 - DPAPI encryption roundtrip, backup create/record/prune, tamper rejection, restore;
 - weekly report totals, daily/tier/model tables, markdown write;
@@ -972,6 +999,12 @@ milestone in the original spec.
 - Chat answers are only as good as the local context. If the ledger has no
   matching event, memory, suggestion, or digest entry, Alice should say so.
 - Suggestion steps are model-generated advice. Alice does not run them.
+- File attachments are read-only and temporary. They are not indexed into
+  memory. Only configured `files.roots` are allowed; binary files are rejected
+  and large files are truncated.
+- Redaction is pattern-based. A file with an unrecognized secret can still be
+  sent to the model when you attach it. Do not attach credentials or key
+  material.
 - Encrypted backups use Windows DPAPI and are therefore per-user and
   per-machine. Copying a `.alicebak` to another account will not restore.
 - A whole-drive scan is broad by design. It is bounded by `max_files`,

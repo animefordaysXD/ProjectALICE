@@ -100,6 +100,20 @@ def test_chat_persists_conversation_and_citations(conn) -> None:
     assert "flush timeout" in joined
 
 
+def test_chat_includes_attached_files(conn) -> None:
+    router = StubRouter("The file says hello.")
+    result = service(conn, router).ask(
+        "What does the attached file say?",
+        attachments=[("notes.txt", "hello world")],
+    )
+
+    assert any(citation["kind"] == "file" for citation in result.citations)
+    _tier, messages = router.calls[0]
+    joined = "\n".join(message.content for message in messages)
+    assert "<attached_files>" in joined
+    assert "hello world" in joined
+
+
 def test_chat_error_is_saved(conn) -> None:
     result = service(conn, StubRouter(fail=True)).ask("Are you there?")
 

@@ -104,6 +104,13 @@ redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
 
+files:
+  # Read-only files you may attach to a chat question. Alice refuses paths
+  # outside these roots. Use ['C:/'] only if you want the whole drive.
+  roots: ['~']
+  max_bytes: 262144
+  max_files: 5
+
 notify:
   mode: digest+toast
   quiet_hours: '22:00-08:00'

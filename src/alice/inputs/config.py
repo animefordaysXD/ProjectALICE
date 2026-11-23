@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
 
 from ..core.config import (
@@ -12,9 +13,11 @@ from ..core.config import (
     compile_regex,
     freeze,
     get_boolean,
+    get_integer,
     get_number,
     get_string,
     reject_unknown,
+    resolve_path,
     validate_encoding,
 )
 
@@ -73,18 +76,58 @@ class RedactionConfig:
 
 
 @dataclass(frozen=True)
+class FilesConfig:
+    """Read-only roots Alice may attach to chat."""
+
+    roots: tuple[Path, ...]
+    max_bytes: int = 262_144
+    max_files: int = 5
+
+
+@dataclass(frozen=True)
 class InputsConfig:
     sources: tuple[Source, ...]
     gate: GateConfig
     redaction: RedactionConfig
+    files: FilesConfig
 
 
-def parse_inputs(sources_raw: Any, gate_raw: Any, redaction_raw: Any) -> InputsConfig:
+def parse_inputs(
+    sources_raw: Any,
+    gate_raw: Any,
+    redaction_raw: Any,
+    files_raw: Any = None,
+    *,
+    root: Path = Path("."),
+) -> InputsConfig:
     return InputsConfig(
         sources=_sources(sources_raw),
         gate=_gate(as_mapping(gate_raw or {}, "gate")),
         redaction=_redaction(as_mapping(redaction_raw or {}, "redaction")),
+        files=_files(files_raw, root),
     )
+
+
+def _files(raw: Any, root: Path) -> FilesConfig:
+    mapping = as_mapping(raw or {}, "files")
+    reject_unknown(mapping, {"roots", "max_bytes", "max_files"}, "files")
+
+    roots_raw = mapping.get("roots", ["~"])
+    if not isinstance(roots_raw, list) or not roots_raw:
+        raise ConfigError("files.roots must be a non-empty list of paths")
+    roots: list[Path] = []
+    for index, value in enumerate(roots_raw):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(f"files.roots[{index}]: expected a non-empty path string")
+        roots.append(resolve_path(Path(value).expanduser(), root))
+
+    max_bytes = get_integer(mapping, "max_bytes", "files", default=262_144)
+    if max_bytes <= 0:
+        raise ConfigError("files.max_bytes must be greater than zero")
+    max_files = get_integer(mapping, "max_files", "files", default=5)
+    if not 1 <= max_files <= 20:
+        raise ConfigError("files.max_files must be between 1 and 20")
+    return FilesConfig(roots=tuple(roots), max_bytes=max_bytes, max_files=max_files)
 
 
 def _gate(raw: Mapping[str, Any]) -> GateConfig:
