@@ -31,22 +31,24 @@ from .settings import AppSettings, load_settings
 
 logger = logging.getLogger(__name__)
 
-BG = "#f3f5f9"
-SIDEBAR = "#0f172a"
-SIDEBAR_ACTIVE = "#1e293b"
-SIDEBAR_TEXT = "#94a3b8"
-SIDEBAR_ACTIVE_TEXT = "#f8fafc"
-CARD_BG = "#ffffff"
-INK = "#0f172a"
-MUTED = "#64748b"
-BORDER = "#e2e8f0"
-ACCENT = "#4f46e5"
-ACCENT_SOFT = "#eef2ff"
-CYAN = "#06b6d4"
-GREEN = "#10b981"
-AMBER = "#f59e0b"
-RED = "#ef4444"
-CHAT_BG = "#f8fafc"
+BG = "#080b14"
+SIDEBAR = "#05070d"
+SIDEBAR_ACTIVE = "#141a2e"
+SIDEBAR_TEXT = "#8b95b5"
+SIDEBAR_ACTIVE_TEXT = "#67e8f9"
+CARD_BG = "#101625"
+INK = "#e5e7eb"
+MUTED = "#94a3b8"
+BORDER = "#24304a"
+ACCENT = "#22d3ee"
+ACCENT_SOFT = "#18233b"
+CYAN = "#22d3ee"
+PINK = "#f472b6"
+VIOLET = "#8b5cf6"
+GREEN = "#34d399"
+AMBER = "#fbbf24"
+RED = "#fb7185"
+CHAT_BG = "#0b1020"
 
 
 class AliceWindow:
@@ -135,24 +137,51 @@ class AliceWindow:
         style.configure(
             "Primary.TButton",
             padding=(12, 6),
-            background=ACCENT,
+            background="#7c3aed",
             foreground="white",
             borderwidth=0,
             focusthickness=0,
         )
         style.map(
             "Primary.TButton",
-            background=[("active", "#4338ca"), ("pressed", "#3730a3")],
-            foreground=[("disabled", "#c7d2fe")],
+            background=[("active", "#6d28d9"), ("pressed", "#5b21b6")],
+            foreground=[("disabled", "#c4b5fd")],
         )
         style.configure(
             "Ghost.TButton",
             padding=(10, 5),
-            background=CARD_BG,
-            foreground=INK,
-            bordercolor=BORDER,
+            background="#151b2b",
+            foreground="#cbd5e1",
+            bordercolor="#2b3650",
             borderwidth=1,
         )
+        style.map(
+            "Ghost.TButton",
+            background=[("active", "#1e2740")],
+            foreground=[("active", "#f8fafc")],
+        )
+        style.configure(
+            "TLabelframe",
+            background=BG,
+            foreground=MUTED,
+            bordercolor=BORDER,
+            relief="solid",
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=BG,
+            foreground=MUTED,
+            font=("Segoe UI Semibold", 9),
+        )
+        style.configure(
+            "TScrollbar",
+            background="#151b2b",
+            troughcolor=BG,
+            arrowcolor=MUTED,
+            bordercolor=BG,
+        )
+        style.configure("TPanedwindow", background=BG)
+        style.configure("Sash", background=BORDER)
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab", padding=(14, 7), font=("Segoe UI", 10))
         style.configure(
@@ -161,16 +190,21 @@ class AliceWindow:
             font=("Segoe UI", 9),
             background=CARD_BG,
             fieldbackground=CARD_BG,
+            foreground=INK,
             borderwidth=0,
         )
         style.configure(
             "Treeview.Heading",
             font=("Segoe UI Semibold", 9),
-            background="#f1f5f9",
+            background="#0f172a",
             foreground=MUTED,
             relief="flat",
         )
-        style.map("Treeview", background=[("selected", ACCENT_SOFT)])
+        style.map(
+            "Treeview",
+            background=[("selected", "#1e2a46")],
+            foreground=[("selected", "#f8fafc")],
+        )
         style.configure("TButton", padding=(10, 5))
 
     def _build(self) -> None:
@@ -183,13 +217,16 @@ class AliceWindow:
 
         main = tk.Frame(self.root, bg=BG)
         main.grid(row=0, column=1, sticky="nsew")
-        main.grid_rowconfigure(2, weight=1)
+        main.grid_rowconfigure(3, weight=1)
         main.grid_columnconfigure(0, weight=1)
+        neon = tk.Frame(main, bg=ACCENT, height=2)
+        neon.grid(row=0, column=0, sticky="ew")
+        tk.Frame(main, bg=PINK, height=1).grid(row=0, column=0, sticky="sew")
 
         self.nav_buttons: dict[str, tk.Button] = {}
         self.pages: dict[str, tk.Frame] = {}
         self.page_host = tk.Frame(main, bg=BG)
-        self.page_host.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 6))
+        self.page_host.grid(row=3, column=0, sticky="nsew", padx=24, pady=(0, 6))
         self.page_host.grid_rowconfigure(0, weight=1)
         self.page_host.grid_columnconfigure(0, weight=1)
 
@@ -211,7 +248,7 @@ class AliceWindow:
             brand, width=44, height=44, bg=SIDEBAR, highlightthickness=0
         )
         avatar.pack(side="left")
-        avatar.create_oval(2, 2, 42, 42, fill=ACCENT, outline="#818cf8", width=2)
+        avatar.create_oval(2, 2, 42, 42, fill=VIOLET, outline=ACCENT, width=2)
         avatar.create_text(22, 22, text="A", fill="white", font=("Segoe UI Semibold", 20))
         text = tk.Frame(brand, bg=SIDEBAR)
         text.pack(side="left", padx=(10, 0))
@@ -323,7 +360,7 @@ class AliceWindow:
 
     def _build_topbar(self, parent: tk.Frame) -> None:
         bar = tk.Frame(parent, bg=BG)
-        bar.grid(row=0, column=0, sticky="ew", padx=24, pady=(18, 12))
+        bar.grid(row=1, column=0, sticky="ew", padx=24, pady=(18, 12))
         left = tk.Frame(bar, bg=BG)
         left.pack(side="left")
         hour = datetime.now().hour
@@ -348,7 +385,7 @@ class AliceWindow:
 
     def _build_cards(self, parent: tk.Frame) -> None:
         cards = tk.Frame(parent, bg=BG)
-        cards.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 14))
+        cards.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 14))
         self.card_vars = {
             "events": tk.StringVar(value="0"),
             "eligible": tk.StringVar(value="0"),
@@ -359,8 +396,8 @@ class AliceWindow:
         }
         labels = [
             ("events", "Events", "▤", ACCENT),
-            ("eligible", "Above gate", "✦", CYAN),
-            ("queued", "Suggestions", "◈", "#8b5cf6"),
+            ("eligible", "Above gate", "✦", PINK),
+            ("queued", "Suggestions", "◈", VIOLET),
             ("proposals", "Proposals", "◇", AMBER),
             ("spend", "Spend today", "$", GREEN),
             ("paused", "State", "●", MUTED),
@@ -404,7 +441,7 @@ class AliceWindow:
 
     def _build_footer(self, parent: tk.Frame) -> None:
         footer = tk.Frame(parent, bg=BG)
-        footer.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 10))
+        footer.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 10))
         self.footer = tk.StringVar(value="")
         tk.Label(
             footer,
@@ -564,8 +601,10 @@ class AliceWindow:
             "Chat with Alice",
             "Ask about events, suggestions, memory, or the digest. Read-only by default.",
         )
+        tab.grid_rowconfigure(2, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
         info = ttk.Frame(tab)
-        info.pack(fill="x", pady=(0, 6))
+        info.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ttk.Label(
             info,
             text="Ask about events, suggestions, memory, or the digest. "
@@ -574,7 +613,7 @@ class AliceWindow:
         ).pack(side="left")
 
         attach_row = ttk.Frame(tab)
-        attach_row.pack(fill="x", pady=(0, 6))
+        attach_row.grid(row=1, column=0, sticky="ew", pady=(0, 6))
         ttk.Button(
             attach_row, text="Attach file...", style="Ghost.TButton",
             command=self._attach_chat_file
@@ -591,7 +630,7 @@ class AliceWindow:
         frame = tk.Frame(
             tab, bg=CHAT_BG, highlightbackground=BORDER, highlightthickness=1
         )
-        frame.pack(fill="both", expand=True)
+        frame.grid(row=2, column=0, sticky="nsew")
         self.chat_text = tk.Text(
             frame,
             wrap="word",
@@ -633,7 +672,7 @@ class AliceWindow:
         )
         self.chat_text.tag_configure(
             "assistant_bubble",
-            background="#ffffff",
+            background="#151b2b",
             foreground=INK,
             font=("Segoe UI", 10),
             lmargin1=12,
@@ -646,7 +685,7 @@ class AliceWindow:
         input_frame = tk.Frame(
             tab, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1
         )
-        input_frame.pack(fill="x", pady=(8, 0))
+        input_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.chat_input = tk.Text(
             input_frame,
             height=3,
@@ -677,8 +716,8 @@ class AliceWindow:
             command=self._save_chat_as_suggestion,
         ).pack(fill="x", pady=(6, 0))
         self.chat_status = tk.StringVar(value="Ready")
-        ttk.Label(tab, textvariable=self.chat_status, style="Sub.TLabel").pack(
-            anchor="w", pady=(6, 0)
+        ttk.Label(tab, textvariable=self.chat_status, style="Sub.TLabel").grid(
+            row=4, column=0, sticky="w", pady=(6, 0)
         )
 
     def _build_memory_tab(self) -> None:
