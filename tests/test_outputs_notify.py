@@ -24,9 +24,16 @@ def test_toast_timeout_does_not_block(monkeypatch) -> None:
     fake.toast = lambda *_args, **_kwargs: time.sleep(1.0)
     monkeypatch.setitem(sys.modules, "win11toast", fake)
 
+    notifier = WindowsToastNotifier(timeout=0.05, cooldown=60)
     started = time.monotonic()
-    delivered = WindowsToastNotifier(timeout=0.05).notify("Alice", "test")
+    delivered = notifier.notify("Alice", "test")
     elapsed = time.monotonic() - started
 
     assert delivered is False
     assert elapsed < 0.5
+
+    # The failed notifier is put on cooldown, so a second attempt returns
+    # immediately instead of paying another 5-second timeout per suggestion.
+    started = time.monotonic()
+    assert notifier.notify("Alice", "another") is False
+    assert time.monotonic() - started < 0.02

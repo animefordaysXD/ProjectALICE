@@ -926,9 +926,9 @@ milestone in the original spec.
 - `memory/seed/*.md` remain as templates; the active core memory is
   `memory/core.json`.
 - Toast delivery depends on `win11toast` and Windows notifications being
-  enabled. Delivery runs with a 5-second timeout; failures leave suggestions
-  queued for the digest. The supervisor also restarts Alice if its run
-  heartbeat goes stale for 10 minutes.
+  enabled. Delivery runs with a 5-second timeout and a 10-minute cooldown after
+  a failure; failures leave suggestions queued for the digest. The supervisor
+  also restarts Alice if its run heartbeat goes stale for 10 minutes.
 - The digest is regenerated on each poll; the summary toast is sent only on the
   first write of the local day, and not during quiet hours.
 - The heavy tier is capped per day and only used when reasoning sets

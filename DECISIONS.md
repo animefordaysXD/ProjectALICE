@@ -806,6 +806,16 @@ one-minute triage, 6,000-token batches, toast priority 1, 10 toasts/hour, and a
 one-day raw retention. The point is to find failures, not to produce a quiet
 daily driver.
 
+The first 6-hour stress run completed with no hang, no integrity failure, and
+no SQLite lock error across four deliberate process kills. It exposed a
+performance bug: when Windows notifications were unavailable, every queued
+suggestion paid the full five-second toast timeout. With ten suggestions per
+hour and a toast loop that ran every cycle, the run spent ~50 seconds per poll
+in notification waits, starving ingestion/triage. The notifier now enters a
+ten-minute cooldown after the first timeout or exception; the first attempt
+costs at most five seconds and the rest return immediately. Suggestions stay
+queued, so the digest remains the durable channel.
+
 ## Open decisions carried forward
 
 | # | Decision | Due | State |

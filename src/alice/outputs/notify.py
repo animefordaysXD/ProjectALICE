@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from ..contracts.outputs import Notifier
 from .config import Notify
@@ -11,6 +12,7 @@ from .config import Notify
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOAST_TIMEOUT = 5.0
+DEFAULT_TOAST_COOLDOWN = 600.0
 
 
 class NullNotifier:
@@ -26,10 +28,18 @@ class WindowsToastNotifier:
     daemon thread with a timeout. A timed-out suggestion stays queued.
     """
 
-    def __init__(self, timeout: float = DEFAULT_TOAST_TIMEOUT) -> None:
+    def __init__(
+        self,
+        timeout: float = DEFAULT_TOAST_TIMEOUT,
+        cooldown: float = DEFAULT_TOAST_COOLDOWN,
+    ) -> None:
         self.timeout = timeout
+        self.cooldown = cooldown
+        self._blocked_until = 0.0
 
     def notify(self, title: str, body: str) -> bool:
+        if time.monotonic() < self._blocked_until:
+            return False
         try:
             from win11toast import toast
         except ImportError:
@@ -49,11 +59,15 @@ class WindowsToastNotifier:
         thread.start()
         thread.join(self.timeout)
         if thread.is_alive():
+            self._blocked_until = time.monotonic() + self.cooldown
             logger.warning(
-                "toast delivery timed out after %.1fs; suggestion stays queued",
+                "toast delivery timed out after %.1fs; skipping toasts for %.0fs",
                 self.timeout,
+                self.cooldown,
             )
             return False
+        if not result["ok"]:
+            self._blocked_until = time.monotonic() + self.cooldown
         return bool(result["ok"])
 
 
