@@ -10,10 +10,11 @@ from datetime import datetime
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from ..brain.chat import load_chat_history
 from ..contracts.outputs import Suggestion
+from ..core.actions import ActionRow, ActionRunner
 from ..core.db import connect, init_db
 from ..core.logging import setup_logging
 from ..inputs.files import FileReader
@@ -52,6 +53,9 @@ class AliceWindow:
         self._chat_poll_id: str | None = None
         self._chat_attachments: list[Path] = []
         self._pending_attachments: list[Path] = []
+        self._fix_queue: queue.Queue = queue.Queue()
+        self._fix_pending = False
+        self._fix_poll_id: str | None = None
 
         self.root.title("Alice")
         self.root.geometry("1180x780")
@@ -206,8 +210,9 @@ class AliceWindow:
                 ("status", "Status", 75),
                 ("category", "Category", 90),
                 ("confidence", "Conf", 55),
-                ("text", "Suggestion", 460),
-                ("reason", "Reason", 260),
+                ("duplicates", "Dup", 40),
+                ("text", "Suggestion", 440),
+                ("reason", "Reason", 240),
             ],
         )
         self.suggestion_tree.bind("<<TreeviewSelect>>", self._show_suggestion_detail)
@@ -230,6 +235,8 @@ class AliceWindow:
         ttk.Button(buttons, text="Mark done", command=lambda: self._set_suggestion("done")).pack(side="left")
         ttk.Button(buttons, text="Dismiss", command=lambda: self._set_suggestion("dismissed")).pack(side="left", padx=6)
         ttk.Button(buttons, text="Copy suggestion", command=self._copy_suggestion).pack(side="left")
+        ttk.Button(buttons, text="Draft fix", command=self._draft_fix).pack(side="left", padx=(12, 0))
+        ttk.Button(buttons, text="Apply fix", command=self._apply_fix).pack(side="left", padx=6)
         ttk.Button(buttons, text="Save answer as suggestion", command=self._save_chat_as_suggestion).pack(side="right")
 
     def _build_chat_tab(self) -> None:
@@ -437,6 +444,7 @@ class AliceWindow:
                     suggestion.status,
                     suggestion.category or "-",
                     f"{suggestion.confidence:.2f}" if suggestion.confidence is not None else "-",
+                    suggestion.duplicate_count if suggestion.duplicate_count > 1 else "",
                     suggestion.text,
                     suggestion.reason or "",
                 ),
@@ -473,6 +481,10 @@ class AliceWindow:
                 meta.append(suggestion.category)
             if suggestion.confidence is not None:
                 meta.append(f"confidence {suggestion.confidence:.2f}")
+            if suggestion.duplicate_count > 1:
+                meta.append(f"merged from {suggestion.duplicate_count} reports")
+            if suggestion.cluster:
+                meta.append(f"cluster {suggestion.cluster}")
             lines = [
                 " · ".join(meta),
                 "",
@@ -522,6 +534,145 @@ class AliceWindow:
         self.root.clipboard_clear()
         self.root.clipboard_append("\n".join(lines))
         self.footer.set(f"Suggestion {suggestion.id} copied to the clipboard.")
+
+    # -- fix actions -------------------------------------------------------
+
+    def _draft_fix(self) -> None:
+        suggestion_id = self._selected_suggestion_id()
+        if suggestion_id is None:
+            messagebox.showinfo("Alice", "Select a suggestion first.")
+            return
+        if self._fix_pending:
+            return
+        self._fix_pending = True
+        self.footer.set("Alice is drafting a fix plan...")
+
+        def worker() -> None:
+            conn = None
+            try:
+                from .bootstrap import build_fix_planner, build_models
+
+                conn = connect(self.settings.db_path, create=False)
+                router = build_models(self.settings, conn)
+                planner = build_fix_planner(self.settings, conn, router)
+                plan = planner.plan(suggestion_id)
+            except Exception as exc:
+                self._fix_queue.put((suggestion_id, None, exc))
+            else:
+                self._fix_queue.put((suggestion_id, plan, None))
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        threading.Thread(target=worker, name="alice-fix-plan", daemon=True).start()
+        self._fix_poll_id = self.root.after(250, self._poll_fix)
+
+    def _poll_fix(self) -> None:
+        try:
+            suggestion_id, plan, error = self._fix_queue.get_nowait()
+        except queue.Empty:
+            self._fix_poll_id = self.root.after(250, self._poll_fix)
+            return
+        self._fix_pending = False
+        if error is not None:
+            self.footer.set(f"Fix failed: {error}")
+            messagebox.showerror("Alice", f"Fix failed: {error}")
+            return
+
+        if isinstance(plan, ActionRow):
+            output = (plan.output or "")[:4000]
+            detail = (
+                f"Action #{plan.id}: {plan.status}\n"
+                f"Exit code: {plan.exit_code}\n"
+                f"Error: {plan.error or 'none'}\n\n{output}"
+            )
+            self.footer.set(f"Action #{plan.id} {plan.status}.")
+            messagebox.showinfo("Action result", detail)
+            self.refresh()
+            return
+
+        action_id = None
+        action_note = "No command proposed; use the manual steps."
+        if plan.program:
+            try:
+                action_id = ActionRunner(
+                    self.conn, self.settings.core.actions, self.settings.root
+                ).propose(
+                    suggestion_id,
+                    summary=plan.summary,
+                    program=plan.program,
+                    args=list(plan.args),
+                    cwd=plan.cwd,
+                    risk=plan.risk,
+                )
+                action_note = f"Proposed action #{action_id}. Use Apply fix to approve it."
+            except Exception as exc:
+                action_note = f"Command was not saved: {exc}"
+
+        command = (
+            " ".join([plan.program, *plan.args]) if plan.program else "(none)"
+        )
+        lines = [
+            plan.summary,
+            "",
+            f"Command: {command}",
+            f"Working directory: {plan.cwd or self.settings.root}",
+            f"Risk: {plan.risk}",
+        ]
+        if plan.manual_steps:
+            lines.extend(["", "Manual steps:"])
+            lines.extend(f"{index}. {step}" for index, step in enumerate(plan.manual_steps, 1))
+        lines.extend(["", action_note])
+        self.footer.set(action_note)
+        messagebox.showinfo("Fix proposal", "\n".join(lines))
+        self.refresh()
+
+    def _apply_fix(self) -> None:
+        suggestion_id = self._selected_suggestion_id()
+        if suggestion_id is None:
+            messagebox.showinfo("Alice", "Select a suggestion first.")
+            return
+        if self._fix_pending:
+            return
+        runner = ActionRunner(
+            self.conn, self.settings.core.actions, self.settings.root
+        )
+        action = runner.latest(suggestion_id)
+        if action is None:
+            messagebox.showinfo("Alice", "Draft a fix first, then approve it here.")
+            return
+        command = " ".join([action.program, *action.args])
+        confirmation = simpledialog.askstring(
+            "Approve action",
+            f"{action.summary}\n\n{command}\n\n"
+            f"Risk: {action.risk or 'unknown'}\n\n"
+            "Type RUN exactly to approve and execute:",
+            parent=self.root,
+        )
+        if confirmation != "RUN":
+            self.footer.set("Action cancelled; nothing was run.")
+            return
+        self._fix_pending = True
+        self.footer.set(f"Running action {action.id}...")
+
+        def worker() -> None:
+            conn = None
+            try:
+                conn = connect(self.settings.db_path, create=False)
+                runner = ActionRunner(
+                    conn, self.settings.core.actions, self.settings.root
+                )
+                result = runner.execute(action.id, confirmation="RUN")
+            except Exception as exc:
+                self._fix_queue.put((suggestion_id, None, exc))
+            else:
+                self._fix_queue.put((suggestion_id, result, None))
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        threading.Thread(target=worker, name="alice-fix-run", daemon=True).start()
+        self._fix_poll_id = self.root.after(250, self._poll_fix)
 
     # -- chat --------------------------------------------------------------
 
@@ -828,6 +979,8 @@ class AliceWindow:
             self.root.after_cancel(self._after_id)
         if self._chat_poll_id is not None:
             self.root.after_cancel(self._chat_poll_id)
+        if self._fix_poll_id is not None:
+            self.root.after_cancel(self._fix_poll_id)
         try:
             self.conn.close()
         finally:

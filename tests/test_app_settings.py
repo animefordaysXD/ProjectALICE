@@ -57,6 +57,9 @@ def test_repo_config_loads() -> None:
     assert config.inputs.files.roots == (Path.home().resolve(),)
     assert config.inputs.files.max_bytes == 262_144
     assert config.inputs.files.max_files == 5
+    assert config.core.actions.enabled is True
+    assert "winget" in config.core.actions.allowed_programs
+    assert config.core.actions.timeout_seconds == 120
 
 
 def test_defaults_and_paths(config_path: Path) -> None:
@@ -75,6 +78,7 @@ def test_defaults_and_paths(config_path: Path) -> None:
     assert config.retention.raw_payload_days == 14
     assert config.core.backup.enabled is True
     assert config.core.backup.dir == root / "state" / "backups"
+    assert config.core.actions.enabled is False
     assert config.models["triage"].batch is False
     assert config.sources[0].options == {"path": "./logs", "glob": "*.log"}
     assert config.memory.hard_max_tokens == 2000
@@ -191,6 +195,30 @@ def test_files_section(config_path: Path) -> None:
     assert config.inputs.files.roots == (config.root / "docs",)
     assert config.inputs.files.max_bytes == 1000
     assert config.inputs.files.max_files == 2
+
+
+def test_actions_section(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8")
+        + "\nactions: {enabled: false, allowed_programs: [winget], timeout_seconds: 30}\n",
+    )
+
+    config = load_settings(config_path)
+
+    assert config.core.actions.enabled is False
+    assert config.core.actions.allowed_programs == ("winget",)
+    assert config.core.actions.timeout_seconds == 30
+
+
+def test_bad_actions_programs(config_path: Path) -> None:
+    write_config(
+        config_path,
+        config_path.read_text(encoding="utf-8") + "\nactions: {allowed_programs: []}\n",
+    )
+
+    with pytest.raises(ConfigError, match="allowed_programs"):
+        load_settings(config_path)
 
 
 def test_bad_files_section(config_path: Path) -> None:

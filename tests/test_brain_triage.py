@@ -117,6 +117,7 @@ def test_suggest_decision_is_queued(conn) -> None:
                     "priority": 2,
                     "reason": "disk pressure",
                     "suggestion_text": "Check free disk space.",
+                    "suggestion_cluster": "disk-pressure",
                     "recall_query": None,
                 }
             )
@@ -131,6 +132,7 @@ def test_suggest_decision_is_queued(conn) -> None:
     assert len(sink.items) == 1
     assert sink.items[0].text == "Check free disk space."
     assert sink.items[0].priority == 2
+    assert sink.items[0].cluster == "disk-pressure"
     assert sink.items[0].source_event_ids == (1,)
 
 

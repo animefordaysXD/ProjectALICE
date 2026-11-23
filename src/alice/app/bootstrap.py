@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 from ..brain.chat import ChatService
 from ..brain.consolidate import ConsolidationService
+from ..brain.fix import FixPlanner
 from ..brain.reason import ReasoningService
+from ..core.actions import ActionRunner
 from ..brain.triage import TriageService
 from ..contracts.outputs import BudgetSnapshot
 from ..core.backup import BackupService
@@ -30,6 +32,7 @@ DRY_RUN_TRIAGE = json.dumps(
         "priority": 1,
         "reason": "dry run escalation",
         "suggestion_text": "Review the escalated event.",
+        "suggestion_cluster": "dry-run-escalation",
         "recall_query": None,
     }
 )
@@ -45,6 +48,7 @@ DRY_RUN_REASON = json.dumps(
                 "evidence": "deterministic dry-run provider",
                 "category": "maintenance",
                 "confidence": 0.5,
+                "cluster": "dry-run-escalation",
             }
         ],
         "needs_heavy": False,
@@ -219,6 +223,22 @@ def build_chat(
         hard_memory=memory.hard_block,
         data_dir=settings.data_dir,
     )
+
+
+def build_fix_planner(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router,
+) -> FixPlanner:
+    return FixPlanner(
+        conn,
+        router=router,
+        allowed_programs=settings.core.actions.allowed_programs,
+    )
+
+
+def build_actions(settings: AppSettings, conn: sqlite3.Connection) -> ActionRunner:
+    return ActionRunner(conn, settings.core.actions, settings.root)
 
 
 def build_digest(

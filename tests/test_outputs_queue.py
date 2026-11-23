@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 
@@ -115,3 +116,64 @@ def test_source_event_ids_round_trip(conn) -> None:
     pending = queue.pending()
 
     assert pending[0].source_event_ids == (3, 5)
+
+
+def test_cluster_submit_merges_into_canonical(conn) -> None:
+    queue = SuggestionQueue(conn)
+    first = queue.submit(
+        Suggestion("Queue flush failed.", 2, cluster="queue-flush", source_event_ids=(1,))
+    )
+    second = queue.submit(
+        Suggestion(
+            "Queue flush failed again.",
+            1,
+            cluster="queue-flush",
+            source_event_ids=(2,),
+            steps=("Check disk",),
+            evidence="214 errors",
+        )
+    )
+
+    assert second == first
+    rows = conn.execute("SELECT * FROM suggestions").fetchall()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["priority"] == 1
+    assert row["duplicate_count"] == 2
+    assert json.loads(row["source_event_ids"]) == [1, 2]
+    assert json.loads(row["steps"]) == ["Check disk"]
+    assert row["evidence"] == "214 errors"
+    assert row["cluster_key"] == "queue-flush"
+
+
+def test_merge_existing_groups_by_cluster(conn) -> None:
+    queue = SuggestionQueue(conn)
+    conn.execute(
+        "INSERT INTO suggestions (created, priority, text, status, cluster_key) "
+        "VALUES (?, 2, 'first', 'queued', 'same-cluster')",
+        (utc_now(),),
+    )
+    conn.execute(
+        "INSERT INTO suggestions (created, priority, text, status, cluster_key) "
+        "VALUES (?, 1, 'second', 'queued', 'same-cluster')",
+        (utc_now(),),
+    )
+    conn.execute(
+        "INSERT INTO suggestions (created, priority, text, status, cluster_key) "
+        "VALUES (?, 2, 'other', 'queued', 'other-cluster')",
+        (utc_now(),),
+    )
+    conn.commit()
+
+    assert queue.merge_existing() == 1
+    active = conn.execute(
+        "SELECT * FROM suggestions WHERE status != 'merged' ORDER BY id"
+    ).fetchall()
+    merged = conn.execute(
+        "SELECT * FROM suggestions WHERE status = 'merged'"
+    ).fetchall()
+    assert len(active) == 2
+    assert active[0]["duplicate_count"] == 2
+    assert active[0]["priority"] == 1
+    assert len(merged) == 1
+    assert merged[0]["merged_into"] == active[0]["id"]

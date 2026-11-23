@@ -32,13 +32,15 @@ Return exactly one JSON object with these keys:
   "priority": 1 | 2 | 3,
   "reason": "at most 20 words",
   "suggestion_text": "optional 1-2 sentence suggestion, or null",
+  "suggestion_cluster": "short stable slug shared by paraphrases, or null",
   "recall_query": "optional keyword query for memory, or null"
 }
 
 Decision guide:
 - ignore: noise, duplicate, or nothing useful.
 - log: worth keeping in the ledger but not worth telling Jo now.
-- suggest: Jo should probably know; include suggestion_text.
+- suggest: Jo should probably know; include suggestion_text and a
+  suggestion_cluster slug such as "queue-flush".
 - escalate: high-stakes or ambiguous; a stronger tier should reason about it.
 
 priority: 1 urgent, 2 useful, 3 low.
@@ -74,7 +76,8 @@ Return exactly one JSON object:
       "steps": ["specific safe step the user can take", "verification step"],
       "evidence": "short quote or event reference supporting it",
       "category": "security | performance | maintenance | data | workflow | other",
-      "confidence": 0.0
+      "confidence": 0.0,
+      "cluster": "short stable slug for the incident, e.g. queue-flush"
     }
   ],
   "needs_heavy": false
@@ -90,6 +93,8 @@ Guidance:
   observations or retrieved memory.
 - category: one of the listed values.
 - confidence: 0.0-1.0. Use lower values when evidence is thin.
+- cluster: a short lowercase slug shared by paraphrases of the same incident.
+  Use the same slug for suggestions that should be merged.
 - Set needs_heavy true only for rare high-stakes or multi-document analysis;
   it is an exception, not a default.
 - Return no markdown and no prose outside the JSON object.
@@ -286,3 +291,28 @@ def build_chat_messages(
     messages.append(Message("user", question))
     prefix_len = len(SYSTEM_PROMPT_CHAT) + 2 + len(context_message)
     return messages, prefix_len
+
+SYSTEM_PROMPT_FIX = """\
+You propose one local, user-approved fix for an Alice suggestion. You do not
+execute anything. Alice will show your proposal to the user and run it only if
+they type RUN.
+
+Rules:
+- Use only the suggestion and its evidence. Do not invent paths or errors.
+- Propose at most one command, with no shell syntax, pipes, redirection,
+  chaining, variables, or quoting tricks.
+- `program` must be a bare executable name from the allowed list.
+- If no safe command exists, set program to null and give manual steps.
+- Never include secrets or credentials.
+- Never claim that the action was run.
+
+Return exactly one JSON object:
+{
+  "summary": "what this fixes, one sentence",
+  "program": "winget" | null,
+  "args": ["..."],
+  "cwd": null,
+  "risk": "low" | "medium" | "high",
+  "manual_steps": ["what the user should do if there is no command"]
+}
+"""

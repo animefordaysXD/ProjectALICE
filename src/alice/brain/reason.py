@@ -52,6 +52,7 @@ class ReasonSuggestion:
     evidence: str | None = None
     category: str | None = None
     confidence: float | None = None
+    cluster: str | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,7 @@ class ReasoningService:
                     evidence=suggestion.evidence,
                     category=suggestion.category,
                     confidence=suggestion.confidence,
+                    cluster=suggestion.cluster,
                 )
             )
         self.ledger.mark_status(list(ids), "done")
@@ -351,6 +353,14 @@ def parse_reasoning(text: str) -> ReasoningDecision:
             if category is not None and category not in _CATEGORIES:
                 category = "other"
 
+        cluster = item.get("cluster")
+        if cluster is not None and not isinstance(cluster, str):
+            raise ReasoningFormatError(f"{where}.cluster must be a string or null")
+        if isinstance(cluster, str):
+            cluster = cluster.strip() or None
+            if cluster is not None and len(cluster) > 48:
+                raise ReasoningFormatError(f"{where}.cluster is too long")
+
         confidence = item.get("confidence")
         if isinstance(confidence, str):
             try:
@@ -383,6 +393,7 @@ def parse_reasoning(text: str) -> ReasoningDecision:
                 ),
                 category=category,
                 confidence=confidence,
+                cluster=cluster,
             )
         )
 

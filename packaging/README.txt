@@ -59,7 +59,9 @@ First run
    files are read-only, redacted, size-capped, and never indexed. Chat is
    user-initiated and budgeted; it cannot act on the computer. The Suggestions
    tab shows steps/evidence and lets you mark items done or dismiss them, copy
-   them, or save a chat answer as a new suggestion.
+   them, or save a chat answer as a new suggestion. "Draft fix" proposes one
+   command; "Apply fix" requires typing RUN and runs only an allowlisted
+   program without a shell.
 6. Optional: double-click "Install startup.cmd" to run Alice hidden at logon.
    "Remove startup.cmd" unregisters it. Windows Task Scheduler is used because
    toasts need the signed-in user's session.
@@ -89,8 +91,9 @@ Commands
 
 Notes
 -----
-- Alice is read-only and suggest-only. It never sends messages, edits files,
-  or runs commands.
+- Alice does not act on her own. A suggestion's fix runs only after you click
+  Apply fix and type RUN in the GUI. It never sends messages or edits files
+  behind your back.
 - Logs and messages are redacted before they are stored or could reach a model.
   Raw text stays in the data folder when redaction changed it.
 - OpenCode Go is a subscription, so calls report $0. Token usage is still
@@ -98,8 +101,12 @@ Notes
 - Suggestions appear in a daily markdown digest under digests\. Toasts use
   win11toast; if Windows notifications are disabled, suggestions stay queued and
   the digest still works.
-- The GUI is a local read-only dashboard. "Alice GUI.cmd" opens alice-gui.exe;
-  it does not run sensors or reasoning in the background.
+- The GUI is a local dashboard. "Alice GUI.cmd" opens alice-gui.exe; it does not
+  run sensors or reasoning in the background. Fix actions require the exact
+  typed confirmation and are logged locally.
+- Fix actions are limited to `actions.allowed_programs` in config\alice.yaml.
+  A proposed command is shown exactly; type RUN to execute. There is no
+  auto-apply. Review commands before approving them.
 - File attachments are limited to `files.roots` in config\alice.yaml (default
   your user profile) and are not indexed. Do not attach credentials or key
   material; redaction is pattern-based.

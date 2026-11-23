@@ -38,6 +38,8 @@ class SuggestionRow:
     evidence: str | None = None
     category: str | None = None
     confidence: float | None = None
+    cluster: str | None = None
+    duplicate_count: int = 1
 
 
 @dataclass(frozen=True)
@@ -143,10 +145,14 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
             evidence=row["evidence"],
             category=row["category"],
             confidence=row["confidence"],
+            cluster=row["cluster_key"],
+            duplicate_count=int(row["duplicate_count"] or 1),
         )
         for row in conn.execute(
             "SELECT id, priority, status, text, reason, steps, evidence, "
-            "category, confidence FROM suggestions ORDER BY id DESC LIMIT 100"
+            "category, confidence, cluster_key, duplicate_count "
+            "FROM suggestions WHERE status != 'merged' "
+            "ORDER BY id DESC LIMIT 100"
         )
     )
     approved = tuple(

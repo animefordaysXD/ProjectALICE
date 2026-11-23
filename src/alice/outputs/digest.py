@@ -56,7 +56,8 @@ class DigestWriter:
         snapshot = self.budget()
         suggestions = self.conn.execute(
             """
-            SELECT * FROM suggestions WHERE created >= ?
+            SELECT * FROM suggestions
+            WHERE created >= ? AND status != 'merged'
             ORDER BY priority, created
             """,
             (start,),
@@ -109,9 +110,14 @@ class DigestWriter:
                 if row["confidence"] is not None:
                     meta.append(f"confidence {float(row['confidence']):.2f}")
                 meta_text = f" ({', '.join(meta)})" if meta else ""
+                merged = (
+                    f" (merged ×{row['duplicate_count']})"
+                    if int(row["duplicate_count"] or 1) > 1
+                    else ""
+                )
                 lines.append(
                     f"- **[P{row['priority']}]** {row['text']}{reason} "
-                    f"(`{row['status']}`){meta_text}"
+                    f"(`{row['status']}`){meta_text}{merged}"
                 )
                 try:
                     steps = json.loads(row["steps"] or "[]")

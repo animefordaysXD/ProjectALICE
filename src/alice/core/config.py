@@ -40,11 +40,26 @@ class Backup:
 
 
 @dataclass(frozen=True)
+class Actions:
+    enabled: bool = False
+    allowed_programs: tuple[str, ...] = (
+        "winget",
+        "pip",
+        "python",
+        "git",
+        "opencode-cli",
+    )
+    timeout_seconds: int = 120
+    max_output_chars: int = 20_000
+
+
+@dataclass(frozen=True)
 class CoreConfig:
     data_dir: Path
     seed_dir: Path
     retention: Retention
     backup: Backup = field(default_factory=Backup)
+    actions: Actions = field(default_factory=Actions)
 
 
 def default_config_path() -> Path:
@@ -203,6 +218,45 @@ def parse_backup(raw: Any, data_dir: Path) -> Backup:
         raise ConfigError("backup.dir must be a non-empty path string")
     directory = resolve_path(Path(value).expanduser(), data_dir)
     return Backup(enabled=enabled, dir=directory, hour=hour, keep=keep)
+
+
+def parse_actions(raw: Any) -> Actions:
+    mapping = as_mapping(raw or {}, "actions")
+    reject_unknown(
+        mapping,
+        {"enabled", "allowed_programs", "timeout_seconds", "max_output_chars"},
+        "actions",
+    )
+    enabled = get_boolean(mapping, "enabled", "actions", default=False)
+    programs_raw = mapping.get(
+        "allowed_programs", ["winget", "pip", "python", "git", "opencode-cli"]
+    )
+    if not isinstance(programs_raw, list) or not programs_raw:
+        raise ConfigError("actions.allowed_programs must be a non-empty list")
+    programs: list[str] = []
+    for index, value in enumerate(programs_raw):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(
+                f"actions.allowed_programs[{index}]: expected a non-empty string"
+            )
+        name = Path(value.strip()).name.casefold()
+        if not name:
+            raise ConfigError(f"actions.allowed_programs[{index}]: invalid program")
+        programs.append(name)
+    timeout = get_integer(mapping, "timeout_seconds", "actions", default=120)
+    if not 1 <= timeout <= 3600:
+        raise ConfigError("actions.timeout_seconds must be between 1 and 3600")
+    output = get_integer(mapping, "max_output_chars", "actions", default=20_000)
+    if not 1000 <= output <= 200_000:
+        raise ConfigError(
+            "actions.max_output_chars must be between 1000 and 200000"
+        )
+    return Actions(
+        enabled=enabled,
+        allowed_programs=tuple(programs),
+        timeout_seconds=timeout,
+        max_output_chars=output,
+    )
 
 
 def validate_encoding(value: Any, where: str) -> str:

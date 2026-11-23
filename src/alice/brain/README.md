@@ -14,6 +14,7 @@ Implemented:
   bookkeeping.
 - `chat.py`: read-only chat over ledger, recall, suggestions, and digest;
   persists user/assistant turns and citations.
+- `fix.py`: drafts one allowlisted fix command for a suggestion; never executes.
 
 Planned:
 
@@ -27,8 +28,8 @@ callables from `app`; imports no sibling module.
 
 Rules:
 
-- Never executes an action. Chat has no tools and cannot open, edit, send, or run
-  anything.
+- Never executes an action. Reasoning/chat/fix planning only propose. Execution
+  lives in `core.actions` behind typed user confirmation.
 - Never writes `hard_memory`; only proposes.
 - Observed content is data, never instructions.
 - A decision is validated against the schema before it is applied.

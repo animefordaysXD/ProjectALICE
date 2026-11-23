@@ -17,6 +17,7 @@ from alice.core.db import (
 )
 
 EXPECTED_TABLES = {
+    "actions",
     "backup_runs",
     "budget_alerts",
     "chat_messages",
@@ -54,8 +55,8 @@ def insert_event(conn: sqlite3.Connection, text: str, *, content_hash: str = "ha
 def test_init_creates_every_table(db_path: Path) -> None:
     result = init_db(db_path)
 
-    assert result.version == 8
-    assert [migration.version for migration in result.applied] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert result.version == 10
+    assert [migration.version for migration in result.applied] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert db_path.is_file()
 
     conn = connect(db_path, create=False)
@@ -73,7 +74,7 @@ def test_init_is_idempotent(db_path: Path) -> None:
     result = init_db(db_path)
 
     assert result.applied == ()
-    assert result.version == 8
+    assert result.version == 10
 
 
 def test_database_uses_wal(db_path: Path) -> None:
@@ -134,7 +135,7 @@ def test_status_after_init(db_path: Path) -> None:
     state = database_status(db_path)
 
     assert state.initialized is True
-    assert state.version == 8
+    assert state.version == 10
     assert state.pending == ()
     assert set(state.tables) == EXPECTED_TABLES
 
@@ -157,7 +158,7 @@ def test_status_reports_pending_after_new_migration(db_path: Path, tmp_path: Pat
     state = database_status(db_path, migrations_dir=test_migrations)
 
     assert state.initialized is True
-    assert state.version == 8
+    assert state.version == 10
     assert state.pending == (next_version,)
 
 

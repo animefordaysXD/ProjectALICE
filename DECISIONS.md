@@ -623,8 +623,9 @@ runs in the consolidation pass.
 
 ### GUI
 
-The user asked for a GUI; it is a **read-only dashboard**, not a new action
-surface.
+At M6 the user asked for a GUI; it was a **read-only dashboard**. Phase 2 later
+added chat, file attachments, and typed fix approval; the GUI can now trigger a
+command only through the `RUN` confirmation described above.
 
 - Tkinter/ttk only: no extra dependency, ships with Python, works in the exe.
 - Views: events, suggestions, approved memory, pending proposals, today's
@@ -636,8 +637,9 @@ surface.
 - Built as a separate windowed `alice-gui.exe` so the CLI keeps its console.
   `Alice GUI.cmd` launches it.
 
-This is a deliberate, scoped exception to the Phase 1 "CLI and notifications
-only" line: the GUI cannot act on the computer or send anything.
+This was a deliberate, scoped exception to the Phase 1 "CLI and notifications
+only" line. The later fix path is separate from the dashboard itself and still
+requires the user's typed approval for one exact command.
 
 ### Tests
 
@@ -856,14 +858,16 @@ Alice: **advise, never act**.
 - Raw text is still not sent. Chat sees the redacted ledger and sanitized
   memory, just like triage and reasoning.
 
-`do not act` is unchanged. The chat answer may suggest steps the user can take;
-the user performs them.
+Chat itself still does not act. The separate fix-action path is the only
+execution surface: the user drafts a command, reviews it, and types RUN. Chat
+cannot invoke it.
 
 ### Schema
 
 Migration `008_chat` adds the suggestion detail columns, `status_changed`, and
-`chat_messages`. Chat history is local and prunable by the Clear button. The
-schema is v8 with 14 tables.
+`chat_messages`. Chat history is local and prunable by the Clear button. Later
+migrations add suggestion clusters (`009`) and explicit fix actions (`010`). The
+schema is v10 with 15 tables.
 
 ### File attachments, not whole-disk indexing
 
@@ -903,7 +907,48 @@ backfill was a one-off data operation, not a schema change.
 New coverage: chat context assembly and persistence, citations, error handling,
 clear, structured suggestion parsing and validation, the richer queue fields,
 file access root confinement, binary rejection, truncation, redaction, and
-attachment context, and triage `suggest` queueing. The suite is 339 tests.
+attachment context, triage `suggest` queueing, suggestion clusters and
+duplicate merging, fix planning, allowlists, typed confirmation, shell-free
+execution, timeouts, and disabled-action refusal. The suite is 350 tests.
+
+## 2026-11-24 — suggestion clusters and explicitly approved fixes
+
+### Clusters
+
+Triage and reasoning now emit a short `cluster` slug. Suggestions with the same
+normalized slug merge into one canonical row: priority becomes the minimum,
+source event IDs and steps are unioned, evidence/category/confidence fill gaps,
+and `duplicate_count` records the contributions. Duplicates are marked `merged`
+and hidden from the active list. `merge_existing()` does the same for older
+active rows that already share a cluster key.
+
+This is deliberately exact-slug merging rather than fuzzy text matching. The
+model is good at naming the incident; a fuzzy threshold would merge distinct
+OpenCode quota and region issues. The user can still see merged rows in the
+database and the duplicate count in the GUI.
+
+### Approved fixes
+
+The user explicitly asked for action capability with a say-so. The safe design
+is a **two-step, typed confirmation**:
+
+1. `Draft fix` asks the `reason` tier for one command plan.
+2. The plan is saved as `proposed`, with exact program, argv, cwd, risk, and
+   manual steps.
+3. `Apply fix` shows the exact command and requires the user to type `RUN`.
+4. `ActionRunner` resolves a bare executable from PATH against
+   `actions.allowed_programs`, rejects paths and shell syntax, runs with
+   `shell=False`, enforces a timeout and output cap, and records exit/output in
+   `actions`.
+
+There is no auto-apply, scheduler, chat trigger, or model-triggered execution.
+The model can be wrong; the user is approving the exact command, not a summary.
+The allowlist defaults to `winget`, `pip`, `python`, `git`, and `opencode-cli`.
+Adding a shell would re-open arbitrary execution, so it is not in the default
+list.
+
+This is a deliberate Phase 2 exception to "no actions": the user is the
+approver, the action is local, the command is visible, and every run is logged.
 
 ## Open decisions carried forward
 

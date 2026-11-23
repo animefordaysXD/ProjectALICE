@@ -274,12 +274,14 @@ def test_parse_reasoning_validation() -> None:
         '{"assessment":"x","suggestions":[{'
         '"text":"y","priority":2,"reason":"r",'
         '"steps":["check","verify"],"evidence":"log line",'
-        '"category":"performance","confidence":0.75}]}'
+        '"category":"performance","confidence":0.75,'
+        '"cluster":"queue-flush"}]}'
     ).suggestions[0]
     assert rich.steps == ("check", "verify")
     assert rich.evidence == "log line"
     assert rich.category == "performance"
     assert rich.confidence == 0.75
+    assert rich.cluster == "queue-flush"
     with pytest.raises(ReasoningFormatError, match="at most"):
         parse_reasoning(
             '{"assessment":"x","suggestions":['

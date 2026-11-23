@@ -66,6 +66,7 @@ src/alice/
     db.py                  connection, pragmas, migrations
     events.py              ledger writes, Event/RawEvent, cursors, raw store
     backup.py              DPAPI-encrypted snapshot, restore, pruning
+    actions.py             explicit allowlisted fix execution + audit rows
     startup.py             logon Scheduled Task install/status/remove
     logging.py             rotating file log
     paths.py               runtime data location, profiles, migration
@@ -152,11 +153,13 @@ a protocol, it belongs here.
 - Config loader helpers and core-owned settings (paths, retention, backup).
 - `Event`, `RawEvent`, ledger writes, cursors, raw payload store.
 - Encrypted local backups and restore verification.
+- Explicit, user-approved fix execution with an executable allowlist and audit
+  rows. No automatic or model-triggered execution.
 - Logon Scheduled Task helpers.
 - Migrations for the whole database, with table ownership documented below.
 
-Owns tables: `schema_migrations`, `events`, `cursors`, `backup_runs`.
-Config sections: top level, `data_dir`, `retention`, `backup`.
+Owns tables: `schema_migrations`, `events`, `cursors`, `backup_runs`, `actions`.
+Config sections: top level, `data_dir`, `retention`, `backup`, `actions`.
 Depends on: `contracts`.
 
 ### inputs
@@ -283,8 +286,9 @@ SQL.
 | `triage_batches` | brain | brain | brain |
 | `consolidation_runs` | brain | brain | brain/status |
 | `chat_messages` | brain | brain chat | GUI/chat |
+| `actions` | core | core action runner | GUI/status |
 | `backup_runs` | core | core backup service | status/backup |
-| `suggestions` | outputs | outputs | outputs |
+| `suggestions` | outputs | outputs; user status/cluster merges | outputs/GUI |
 | `budget_alerts` | models | models | models/status/digest |
 | `usage` | models | models | budget/status |
 
@@ -322,7 +326,7 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 
 | Section | Owner | Status |
 | --- | --- | --- |
-| top-level paths, retention, backup | core | done |
+| top-level paths, retention, backup, actions | core | done |
 | `models`, `budget` | models | done |
 | `sources`, `gate`, `redaction`, `files` | inputs | done |
 | `triage` | brain | done |
@@ -388,4 +392,4 @@ A module is "separate" when all of these are true:
 | 8. Optional extraction of a module into its own distribution | only if needed |
 
 The migration is deliberately mechanical first. Behavior must not change while
-the boundaries move; the 339-test suite is the safety net.
+the boundaries move; the 350-test suite is the safety net.

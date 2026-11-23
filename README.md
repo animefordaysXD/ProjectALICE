@@ -1,16 +1,17 @@
 # Project Alice
 
-Alice is a local, read-only secretary agent for Windows. She watches log files
-and messages, decides what matters, remembers useful context, and offers
-suggestions. She never acts on the computer, never sends raw content to a
-model, and never spends money without an explicit budget.
+Alice is a local secretary agent for Windows. She watches log files and
+messages, decides what matters, remembers useful context, and offers
+suggestions. By default she does not act. A fix can run only after you draft it,
+review the exact command, and type **RUN** in the GUI. She never sends raw
+content to a model and never spends money without an explicit budget.
 
 This repository contains the Phase 1 brain: inputs, redaction, an append-only
 ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, and read-only file attachments. 339 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, read-only file attachments, clustering, and explicitly approved fix actions. 350 tests pass.
 
 ---
 
@@ -59,13 +60,14 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 ### Phase 1 non-goals
 
 - No screen watching, vision, or camera.
-- No actions on Jo's behalf: no sending messages, editing files, or running
-  commands.
+- No **autonomous** actions. A proposed fix executes only after the user reviews
+  the exact program/arguments and types **RUN**. There is no scheduled or
+  model-triggered execution.
 - No cloud database or remote VM.
-- No action-capable GUI. The only GUI is the read-only dashboard described
-  below; it cannot sense, reason, or change anything outside explicit admin
-  actions (pause, memory approval, digest/backup/report writing).
-- No unsandboxed third-party plugins with action capabilities.
+- No action-capable plugins. The GUI's fix runner is a built-in, allowlisted
+  command path, not a general plugin surface.
+- No shell interpretation: actions run as argument vectors with
+  `shell=False`.
 
 ---
 
@@ -87,9 +89,11 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
 | Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, toast cap, daily digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
-| GUI | Read-only dashboard with events, suggestion actions, memory approvals, digest, pause/resume, and local chat |
+| GUI | Dashboard with events, suggestion actions, memory approvals, digest, pause/resume, local chat, and explicitly approved fixes |
 | Chat | Budgeted read-only Q&A over the ledger, suggestions, memory, digest, and explicitly attached text files |
 | Files | Read-only chat attachments under configured roots, redacted and size-capped; no writes or automatic indexing |
+| Actions | Model-drafted fix command, exact confirmation, executable allowlist, no shell, timeout, local output log |
+| Clustering | Stable suggestion clusters, duplicate counts, merged evidence/source events |
 | Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
 | Report | `alice report` weekly spend, token, tier, model, and activity trends |
 | Startup | Hidden logon Scheduled Task with restart-on-failure; `alice startup` |
@@ -294,6 +298,12 @@ redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
 
+actions:
+  enabled: true
+  allowed_programs: ['winget', 'pip', 'python', 'git', 'opencode-cli']
+  timeout_seconds: 120
+  max_output_chars: 20000
+
 files:
   roots: ['~']
   max_bytes: 262144
@@ -440,14 +450,16 @@ checks the consolidation hour and retries a failed daily pass after an hour.
 ## Desktop GUI
 
 `alice gui`, or `alice-gui.exe` / `Alice GUI.cmd` in the packaged build, opens a
-read-only Tkinter dashboard:
+local Tkinter dashboard. It is read-only except for explicit administration and
+fix actions you approve:
 
 - **Overview cards:** events, eligible events, queued suggestions, pending
   proposals, spend, paused state.
 - **Events:** recent redacted events with status and salience.
-- **Suggestions:** priority, status, category, confidence, text, and reason.
-  Select a row to see its steps and evidence. You can mark it done, dismiss it,
-  copy the full suggestion, or save a chat answer as a new suggestion.
+- **Suggestions:** priority, status, category, confidence, duplicate count,
+  text, and reason. Select a row to see its steps and evidence. You can mark it
+  done, dismiss it, copy it, save a chat answer, draft a fix, or approve a fix
+  by typing RUN.
 - **Chat:** ask about events, suggestions, memory, or the digest. You can attach
   text files for the question. Answers are persisted locally and include the
   context they used.
@@ -507,6 +519,59 @@ question and then cleared. To let Alice read outside your profile, edit
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
+
+## Fix actions
+
+The Suggestions tab has **Draft fix** and **Apply fix**.
+
+1. Select a suggestion and click **Draft fix**.
+2. Alice asks the `reason` tier for one plan. It returns a summary, a bare
+   program name, arguments, risk, and manual steps.
+3. The proposed action is saved with status `proposed`. Nothing runs.
+4. Review the exact command and click **Apply fix**.
+5. Type `RUN` in the confirmation box. Anything else cancels.
+6. Alice runs the argument vector with `shell=False`, records exit code and
+   output in `actions`, and shows the result.
+
+Safety boundaries:
+
+- `actions.enabled: true` is required.
+- `actions.allowed_programs` is an executable allowlist, resolved from PATH.
+  The default is `winget`, `pip`, `python`, `git`, `opencode-cli`.
+- Absolute paths, shell syntax, pipes, redirection, and chained commands are
+  rejected.
+- The working directory must stay under the app root.
+- A timeout and output cap apply.
+- Every proposal and result is local in the `actions` table.
+- There is no auto-apply, no scheduled action, and no model-triggered action.
+- The model's command may still be wrong. You are approving the exact command,
+  not a description.
+
+```yaml
+actions:
+  enabled: true
+  allowed_programs: ['winget', 'pip', 'python', 'git', 'opencode-cli']
+  timeout_seconds: 120
+  max_output_chars: 20000
+```
+
+If a fix needs another program, add its bare name to `allowed_programs` and
+restart Alice. Do not add a shell unless you understand that it re-opens
+arbitrary command execution.
+
+## Suggestion clustering
+
+Reasoning and triage ask the model for a short `cluster` slug. Suggestions with
+the same slug merge into one canonical row:
+
+- the highest priority wins;
+- source event IDs are unioned;
+- steps and evidence are combined;
+- `duplicate_count` records how many reports contributed;
+- duplicates are marked `merged` and hidden from the active list.
+
+`merge_existing` can merge older active rows that already share a cluster key.
+The GUI shows the duplicate count in the **Dup** column.
 
 ## Backups and restore
 
@@ -800,8 +865,9 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 | `triage_batches` | brain | brain |
 | `consolidation_runs` | brain | brain |
 | `chat_messages` | brain | brain chat service |
+| `actions` | core | core action runner; user approval only |
 | `backup_runs` | core | core backup service |
-| `suggestions` | outputs | outputs/reasoning; user status changes |
+| `suggestions` | outputs | outputs/reasoning; user status changes; cluster merges |
 | `budget_alerts` | models | models |
 | `usage` | models | models |
 
@@ -853,7 +919,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-339 tests cover:
+350 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -879,6 +945,9 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - chat persistence, context assembly, citations, empty/error handling, clearing;
 - read-only file access: root confinement, binary rejection, size truncation,
   redaction, file caps, and chat attachment context;
+- suggestion clusters, duplicate merging, duplicate counts, and merged status;
+- fix planning, program allowlists, typed confirmation, shell-free execution,
+  timeouts, output capture, and disabled-action refusal;
 - consolidation summaries, proposals, idempotency, retention pruning;
 - DPAPI encryption roundtrip, backup create/record/prune, tamper rejection, restore;
 - weekly report totals, daily/tier/model tables, markdown write;
@@ -994,9 +1063,11 @@ milestone in the original spec.
   first write of the local day, and not during quiet hours.
 - The heavy tier is capped per day and only used when reasoning sets
   `needs_heavy`; no automatic escalation to heavy exists yet.
-- The GUI is a local read-only dashboard. It does not run sensors or reasoning
-  in the background; it reads the database written by `alice run`. Chat is
-  user-initiated and budgeted, not a background agent.
+- The GUI is a local dashboard. It does not run sensors or reasoning in the
+  background; it reads the database written by `alice run`. Chat and fixes are
+  user-initiated and budgeted, not background agents.
+- Fix actions are model-drafted. The command may be wrong; approve only what you
+  understand. There is no automatic execution.
 - Chat answers are only as good as the local context. If the ledger has no
   matching event, memory, suggestion, or digest entry, Alice should say so.
 - Suggestion steps are model-generated advice. Alice does not run them.

@@ -39,6 +39,7 @@ class TriageDecision:
     reason: str
     suggestion_text: str | None = None
     recall_query: str | None = None
+    suggestion_cluster: str | None = None
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,7 @@ class TriageService:
                     priority=decision.priority,
                     source_event_ids=tuple(event_ids),
                     reason=decision.reason,
+                    cluster=decision.suggestion_cluster,
                 )
             )
         logger.info(
@@ -234,12 +236,18 @@ def parse_decision(text: str) -> TriageDecision:
 
     suggestion = _optional_text(payload.get("suggestion_text"), "suggestion_text")
     recall = _optional_text(payload.get("recall_query"), "recall_query")
+    cluster = _optional_text(
+        payload.get("suggestion_cluster"), "suggestion_cluster"
+    )
+    if cluster is not None and len(cluster) > 48:
+        raise TriageFormatError("suggestion_cluster is too long")
     return TriageDecision(
         decision=decision,
         priority=priority,
         reason=reason,
         suggestion_text=suggestion,
         recall_query=recall,
+        suggestion_cluster=cluster,
     )
 
 

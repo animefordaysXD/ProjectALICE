@@ -7,6 +7,7 @@ from .chat import (
     ChatService,
     load_chat_history,
 )
+from .fix import FixFormatError, FixPlan, FixPlanner, parse_fix_plan
 from .consolidate import (
     ConsolidationFormatError,
     ConsolidationResult,
@@ -38,6 +39,10 @@ __all__ = [
     "ChatResult",
     "ChatService",
     "ConsolidationFormatError",
+    "FixFormatError",
+    "FixPlan",
+    "FixPlanner",
+    "parse_fix_plan",
     "ConsolidationResult",
     "ConsolidationService",
     "Escalation",

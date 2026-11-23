@@ -16,6 +16,7 @@ class Suggestion:
     evidence: str | None = None
     category: str | None = None
     confidence: float | None = None
+    cluster: str | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.priority <= 3:

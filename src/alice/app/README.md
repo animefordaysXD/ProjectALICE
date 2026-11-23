@@ -9,8 +9,8 @@ other module.
 - `bootstrap.py`: opens the database and wires sensors → gate → ledger, models,
   memory, reasoning, consolidation, backup, chat, and delivery.
 - `dashboard.py`: read-only dashboard data.
-- `gui.py`: Tkinter dashboard with suggestion actions, chat, and read-only file
-  attachments. Read-only plus explicit admin actions.
+- `gui.py`: Tkinter dashboard with suggestion actions, chat, read-only file
+  attachments, fix drafting, and typed `RUN` confirmation.
 - Future: a service host if toasts and per-user DPAPI stop being requirements.
 
 Owns no tables and contains no domain policy.
