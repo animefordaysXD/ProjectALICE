@@ -888,12 +888,22 @@ This keeps read-only file access useful without turning Alice into a silent
 whole-disk indexer. Pattern-based redaction still cannot catch an unrecognized
 secret, so the README warns against attaching credentials.
 
+### Triage `suggest` decisions must enter the queue
+
+A one-hour real backlog drain exposed a gap: triage recorded `decision=suggest`
+and its `suggestion_text`, but only reasoning submitted to the suggestion sink.
+The result was nine useful triage suggestions stored in `triage_batches` and
+invisible in the queue. `TriageService` now accepts the suggestion sink and
+submits `suggest` decisions immediately after recording the batch. Existing
+triage-only suggestions were backfilled into the queue during the review; the
+backfill was a one-off data operation, not a schema change.
+
 ### Tests
 
 New coverage: chat context assembly and persistence, citations, error handling,
 clear, structured suggestion parsing and validation, the richer queue fields,
-and file access root confinement, binary rejection, truncation, redaction, and
-attachment context. The suite is 338 tests.
+file access root confinement, binary rejection, truncation, redaction, and
+attachment context, and triage `suggest` queueing. The suite is 339 tests.
 
 ## Open decisions carried forward
 

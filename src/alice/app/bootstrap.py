@@ -145,6 +145,7 @@ def build_triage(
     conn: sqlite3.Connection,
     router: Router,
     memory: MemoryService,
+    queue: SuggestionQueue | None = None,
 ) -> TriageService:
     return TriageService(
         conn,
@@ -153,6 +154,7 @@ def build_triage(
         hard_memory=memory.hard_block,
         config=settings.brain.triage,
         min_salience=settings.inputs.gate.min_salience,
+        sink=queue,
     )
 
 

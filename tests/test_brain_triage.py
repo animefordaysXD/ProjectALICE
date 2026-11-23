@@ -81,7 +81,9 @@ def add_event(
     return int(cursor.lastrowid)
 
 
-def service(conn: sqlite3.Connection, router, *, max_tokens: int = 3000) -> TriageService:
+def service(
+    conn: sqlite3.Connection, router, *, max_tokens: int = 3000, sink=None
+) -> TriageService:
     return TriageService(
         conn,
         router=router,
@@ -89,11 +91,47 @@ def service(conn: sqlite3.Connection, router, *, max_tokens: int = 3000) -> Tria
         hard_memory=lambda: "Project: Alice",
         config=Triage(interval_minutes=5, max_batch_tokens=max_tokens),
         min_salience=0.5,
+        sink=sink,
     )
+
+
+class RecordingSink:
+    def __init__(self) -> None:
+        self.items = []
+
+    def submit(self, suggestion) -> int:
+        self.items.append(suggestion)
+        return len(self.items)
 
 
 def status_of(conn: sqlite3.Connection, event_id: int) -> str:
     return conn.execute("SELECT status FROM events WHERE id = ?", (event_id,)).fetchone()[0]
+
+
+def test_suggest_decision_is_queued(conn) -> None:
+    router = StubRouter(
+        [
+            json.dumps(
+                {
+                    "decision": "suggest",
+                    "priority": 2,
+                    "reason": "disk pressure",
+                    "suggestion_text": "Check free disk space.",
+                    "recall_query": None,
+                }
+            )
+        ]
+    )
+    sink = RecordingSink()
+    add_event(conn, "disk warning")
+
+    result = service(conn, router, sink=sink).run_once()
+
+    assert result.decision and result.decision.decision == "suggest"
+    assert len(sink.items) == 1
+    assert sink.items[0].text == "Check free disk space."
+    assert sink.items[0].priority == 2
+    assert sink.items[0].source_event_ids == (1,)
 
 
 def test_no_events_means_no_model_call(conn) -> None:

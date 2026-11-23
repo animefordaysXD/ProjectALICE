@@ -838,13 +838,13 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     ingestion = build_ingestion(config, conn)
     sensors, gate = ingestion.sensors, ingestion.gate
     memory = build_memory(config, conn)
+    queue = build_queue(conn)
     try:
         router = build_models(config, conn, dry_run=dry_run)
-        triage = build_triage(config, conn, router, memory)
+        triage = build_triage(config, conn, router, memory, queue)
     except (ProviderNotConfigured, RouterError) as exc:
         conn.close()
         raise click.ClickException(str(exc)) from exc
-    queue = build_queue(conn)
     reasoning = build_reasoning(config, conn, router, memory, queue)
     consolidation = build_consolidation(config, conn, router, memory)
     notifier = build_notifications(config, dry_run=dry_run)

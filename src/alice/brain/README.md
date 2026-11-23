@@ -6,7 +6,8 @@ Implemented:
 
 - `prompts.py`: static prompts for triage, reasoning, consolidation, and chat;
   hard-memory block; task/recall blocks; observed data; cache-prefix length.
-- `triage.py`: Tier 1 batching, decisions, ledger statuses.
+- `triage.py`: Tier 1 batching, decisions, ledger statuses, and queueing
+  `suggest` decisions into the suggestion sink.
 - `reason.py`: Tier 2 escalation reasoning, task lifecycle, recall, optional
   heavy refinement, structured suggestions with steps/evidence/category/confidence.
 - `consolidate.py`: Tier 3 hourly/daily summaries, proposals, raw pruning

@@ -10,7 +10,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, and read-only file attachments. 338 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, and read-only file attachments. 339 tests pass.
 
 ---
 
@@ -853,7 +853,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-338 tests cover:
+339 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - database migrations, WAL, FTS sync, table safety;
@@ -874,6 +874,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - core memory JSON, hard memory approvals and write protection, TTL tasks;
 - FTS and sqlite-vec recall, summaries-first ranking, token budgets;
 - triage decisions, retries, batching, 200-event replay, prompt-prefix stability;
+- triage `suggest` decisions entering the suggestion queue;
 - structured suggestion validation: steps, evidence, category, confidence;
 - chat persistence, context assembly, citations, empty/error handling, clearing;
 - read-only file access: root confinement, binary rejection, size truncation,

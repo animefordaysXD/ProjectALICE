@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Callable, Sequence
 
 from ..contracts.models import Completion, Message, ModelRouter
+from ..contracts.outputs import Suggestion, SuggestionSink
 from ..core.db import utc_now
 from ..core.events import Event, Ledger
 from ..core.tokens import estimate_tokens
@@ -63,6 +64,7 @@ class TriageService:
         hard_memory: Callable[[], str],
         config: Triage,
         min_salience: float,
+        sink: SuggestionSink | None = None,
     ) -> None:
         self.conn = conn
         self.router = router
@@ -70,6 +72,7 @@ class TriageService:
         self.hard_memory = hard_memory
         self.config = config
         self.min_salience = min_salience
+        self.sink = sink
 
     def run_once(self, now: str | None = None) -> TriageResult:
         events = self._select_batch()
@@ -130,6 +133,19 @@ class TriageService:
             completion=completion,
             created=now or utc_now(),
         )
+        if (
+            self.sink is not None
+            and decision.decision == "suggest"
+            and decision.suggestion_text
+        ):
+            self.sink.submit(
+                Suggestion(
+                    text=decision.suggestion_text,
+                    priority=decision.priority,
+                    source_event_ids=tuple(event_ids),
+                    reason=decision.reason,
+                )
+            )
         logger.info(
             "triage batch=%d events=%d decision=%s priority=%d",
             batch_id,
