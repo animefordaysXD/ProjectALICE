@@ -31,11 +31,22 @@ from .settings import AppSettings, load_settings
 
 logger = logging.getLogger(__name__)
 
-BG = "#f4f5f8"
+BG = "#f3f5f9"
+SIDEBAR = "#0f172a"
+SIDEBAR_ACTIVE = "#1e293b"
+SIDEBAR_TEXT = "#94a3b8"
+SIDEBAR_ACTIVE_TEXT = "#f8fafc"
 CARD_BG = "#ffffff"
-INK = "#1f2937"
-MUTED = "#6b7280"
-ACCENT = "#1d4ed8"
+INK = "#0f172a"
+MUTED = "#64748b"
+BORDER = "#e2e8f0"
+ACCENT = "#4f46e5"
+ACCENT_SOFT = "#eef2ff"
+CYAN = "#06b6d4"
+GREEN = "#10b981"
+AMBER = "#f59e0b"
+RED = "#ef4444"
+CHAT_BG = "#f8fafc"
 
 
 class AliceWindow:
@@ -57,10 +68,15 @@ class AliceWindow:
         self._fix_pending = False
         self._fix_poll_id: str | None = None
 
-        self.root.title("Alice")
-        self.root.geometry("1180x780")
-        self.root.minsize(960, 640)
+        self.root.title("Alice · AI Secretary")
+        self.root.minsize(980, 640)
         self.root.configure(bg=BG)
+        width, height = 1120, 700
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2 - 20)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
         self._style()
         self._build()
         self.refresh()
@@ -78,34 +94,261 @@ class AliceWindow:
             pass
         style.configure(".", font=("Segoe UI", 10), background=BG, foreground=INK)
         style.configure("TFrame", background=BG)
+        style.configure("Content.TFrame", background=BG)
         style.configure("Card.TFrame", background=CARD_BG, relief="flat")
-        style.configure("CardTitle.TLabel", background=CARD_BG, foreground=MUTED, font=("Segoe UI", 9))
-        style.configure("CardValue.TLabel", background=CARD_BG, foreground=INK, font=("Segoe UI Semibold", 16))
-        style.configure("Title.TLabel", background=BG, foreground=INK, font=("Segoe UI Semibold", 22))
-        style.configure("Sub.TLabel", background=BG, foreground=MUTED, font=("Segoe UI", 10))
+        style.configure(
+            "CardTitle.TLabel",
+            background=CARD_BG,
+            foreground=MUTED,
+            font=("Segoe UI Semibold", 8),
+        )
+        style.configure(
+            "CardValue.TLabel",
+            background=CARD_BG,
+            foreground=INK,
+            font=("Segoe UI Semibold", 15),
+        )
+        style.configure(
+            "PageTitle.TLabel",
+            background=BG,
+            foreground=INK,
+            font=("Segoe UI Semibold", 18),
+        )
+        style.configure(
+            "PageSub.TLabel",
+            background=BG,
+            foreground=MUTED,
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "Greeting.TLabel",
+            background=BG,
+            foreground=INK,
+            font=("Segoe UI Semibold", 20),
+        )
+        style.configure(
+            "Sub.TLabel",
+            background=BG,
+            foreground=MUTED,
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "Primary.TButton",
+            padding=(12, 6),
+            background=ACCENT,
+            foreground="white",
+            borderwidth=0,
+            focusthickness=0,
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", "#4338ca"), ("pressed", "#3730a3")],
+            foreground=[("disabled", "#c7d2fe")],
+        )
+        style.configure(
+            "Ghost.TButton",
+            padding=(10, 5),
+            background=CARD_BG,
+            foreground=INK,
+            bordercolor=BORDER,
+            borderwidth=1,
+        )
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab", padding=(14, 7), font=("Segoe UI", 10))
-        style.configure("Treeview", rowheight=24, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9))
+        style.configure(
+            "Treeview",
+            rowheight=26,
+            font=("Segoe UI", 9),
+            background=CARD_BG,
+            fieldbackground=CARD_BG,
+            borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=("Segoe UI Semibold", 9),
+            background="#f1f5f9",
+            foreground=MUTED,
+            relief="flat",
+        )
+        style.map("Treeview", background=[("selected", ACCENT_SOFT)])
         style.configure("TButton", padding=(10, 5))
 
     def _build(self) -> None:
-        outer = ttk.Frame(self.root, padding=18)
-        outer.pack(fill="both", expand=True)
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(1, weight=1)
 
-        header = ttk.Frame(outer)
-        header.pack(fill="x", pady=(0, 12))
-        ttk.Label(header, text="Alice", style="Title.TLabel").pack(side="left")
+        sidebar = tk.Frame(self.root, bg=SIDEBAR, width=220)
+        sidebar.grid(row=0, column=0, sticky="ns")
+        sidebar.grid_propagate(False)
+
+        main = tk.Frame(self.root, bg=BG)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_rowconfigure(2, weight=1)
+        main.grid_columnconfigure(0, weight=1)
+
+        self.nav_buttons: dict[str, tk.Button] = {}
+        self.pages: dict[str, tk.Frame] = {}
+        self.page_host = tk.Frame(main, bg=BG)
+        self.page_host.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 6))
+        self.page_host.grid_rowconfigure(0, weight=1)
+        self.page_host.grid_columnconfigure(0, weight=1)
+
+        self._build_sidebar(sidebar)
+        self._build_topbar(main)
+        self._build_cards(main)
+        self._build_events_tab()
+        self._build_suggestions_tab()
+        self._build_chat_tab()
+        self._build_memory_tab()
+        self._build_digest_tab()
+        self._build_footer(main)
+        self._show_page("events")
+
+    def _build_sidebar(self, parent: tk.Frame) -> None:
+        brand = tk.Frame(parent, bg=SIDEBAR)
+        brand.pack(fill="x", padx=18, pady=(22, 14))
+        avatar = tk.Canvas(
+            brand, width=44, height=44, bg=SIDEBAR, highlightthickness=0
+        )
+        avatar.pack(side="left")
+        avatar.create_oval(2, 2, 42, 42, fill=ACCENT, outline="#818cf8", width=2)
+        avatar.create_text(22, 22, text="A", fill="white", font=("Segoe UI Semibold", 20))
+        text = tk.Frame(brand, bg=SIDEBAR)
+        text.pack(side="left", padx=(10, 0))
+        tk.Label(
+            text,
+            text="ALICE",
+            bg=SIDEBAR,
+            fg=SIDEBAR_ACTIVE_TEXT,
+            font=("Segoe UI Semibold", 16),
+        ).pack(anchor="w")
+        tk.Label(
+            text,
+            text="AI secretary · local only",
+            bg=SIDEBAR,
+            fg=SIDEBAR_TEXT,
+            font=("Segoe UI", 8),
+        ).pack(anchor="w")
+
+        tk.Frame(parent, bg="#1e293b", height=1).pack(fill="x", padx=18, pady=(4, 12))
+        tk.Label(
+            parent,
+            text="WORKSPACE",
+            bg=SIDEBAR,
+            fg="#64748b",
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w", padx=22, pady=(0, 6))
+
+        nav = [
+            ("events", "▤   Events"),
+            ("suggestions", "✦   Suggestions"),
+            ("chat", "✉   Chat"),
+            ("memory", "◈   Memory"),
+            ("digest", "▤   Digest"),
+        ]
+        for name, label in nav:
+            button = tk.Button(
+                parent,
+                text=label,
+                command=lambda page=name: self._show_page(page),
+                bg=SIDEBAR,
+                fg=SIDEBAR_TEXT,
+                activebackground=SIDEBAR_ACTIVE,
+                activeforeground=SIDEBAR_ACTIVE_TEXT,
+                relief="flat",
+                bd=0,
+                anchor="w",
+                padx=22,
+                pady=9,
+                font=("Segoe UI", 10),
+                cursor="hand2",
+            )
+            button.pack(fill="x", pady=1)
+            self.nav_buttons[name] = button
+
+        tk.Frame(parent, bg=SIDEBAR).pack(fill="both", expand=True)
+        status = tk.Frame(parent, bg=SIDEBAR)
+        status.pack(fill="x", padx=18, pady=(0, 10))
+        self.status_label = tk.Label(
+            status,
+            text="●  Online",
+            bg="#052e2b",
+            fg="#6ee7b7",
+            font=("Segoe UI Semibold", 9),
+            padx=10,
+            pady=4,
+        )
+        self.status_label.pack(anchor="w")
+
+        self.pause_button = tk.Button(
+            parent,
+            text="Pause calls",
+            command=self._toggle_pause,
+            bg=SIDEBAR_ACTIVE,
+            fg=SIDEBAR_ACTIVE_TEXT,
+            activebackground="#334155",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            anchor="w",
+            padx=22,
+            pady=8,
+            font=("Segoe UI", 9),
+            cursor="hand2",
+        )
+        self.pause_button.pack(fill="x", pady=(4, 2))
+
+        for text, command in (
+            ("Data folder", self._open_data),
+            ("Core memory", self._open_core),
+            ("Digest folder", self._open_digests),
+        ):
+            tk.Button(
+                parent,
+                text=text,
+                command=command,
+                bg=SIDEBAR,
+                fg=SIDEBAR_TEXT,
+                activebackground=SIDEBAR_ACTIVE,
+                activeforeground=SIDEBAR_ACTIVE_TEXT,
+                relief="flat",
+                bd=0,
+                anchor="w",
+                padx=22,
+                pady=4,
+                font=("Segoe UI", 8),
+                cursor="hand2",
+            ).pack(fill="x")
+        tk.Frame(parent, bg=SIDEBAR, height=14).pack(fill="x")
+
+    def _build_topbar(self, parent: tk.Frame) -> None:
+        bar = tk.Frame(parent, bg=BG)
+        bar.grid(row=0, column=0, sticky="ew", padx=24, pady=(18, 12))
+        left = tk.Frame(bar, bg=BG)
+        left.pack(side="left")
+        hour = datetime.now().hour
+        greeting = (
+            "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+        )
+        ttk.Label(left, text=f"{greeting}, Jo", style="Greeting.TLabel").pack(anchor="w")
         ttk.Label(
-            header,
-            text="  local secretary · read-only · suggest-only",
+            left,
+            text="Your local AI secretary is watching the noise so you don't have to.",
             style="Sub.TLabel",
-        ).pack(side="left", pady=(8, 0))
+        ).pack(anchor="w", pady=(2, 0))
+        right = tk.Frame(bar, bg=BG)
+        right.pack(side="right")
         self.updated = tk.StringVar(value="")
-        ttk.Label(header, textvariable=self.updated, style="Sub.TLabel").pack(side="right")
+        ttk.Label(right, textvariable=self.updated, style="Sub.TLabel").pack(
+            side="right", padx=(8, 0)
+        )
+        ttk.Button(
+            right, text="Refresh", style="Ghost.TButton", command=self.refresh
+        ).pack(side="right")
 
-        cards = ttk.Frame(outer)
-        cards.pack(fill="x", pady=(0, 12))
+    def _build_cards(self, parent: tk.Frame) -> None:
+        cards = tk.Frame(parent, bg=BG)
+        cards.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 14))
         self.card_vars = {
             "events": tk.StringVar(value="0"),
             "eligible": tk.StringVar(value="0"),
@@ -115,43 +358,95 @@ class AliceWindow:
             "paused": tk.StringVar(value="no"),
         }
         labels = [
-            ("events", "Events"),
-            ("eligible", "Above gate"),
-            ("queued", "Queued suggestions"),
-            ("proposals", "Pending proposals"),
-            ("spend", "Spend today"),
-            ("paused", "Paused"),
+            ("events", "Events", "▤", ACCENT),
+            ("eligible", "Above gate", "✦", CYAN),
+            ("queued", "Suggestions", "◈", "#8b5cf6"),
+            ("proposals", "Proposals", "◇", AMBER),
+            ("spend", "Spend today", "$", GREEN),
+            ("paused", "State", "●", MUTED),
         ]
-        for index, (key, title) in enumerate(labels):
-            card = ttk.Frame(cards, style="Card.TFrame", padding=12)
-            card.grid(row=0, column=index, sticky="nsew", padx=(0, 8) if index < 5 else 0)
+        for index, (key, title, icon, color) in enumerate(labels):
+            card = tk.Frame(
+                cards,
+                bg=CARD_BG,
+                highlightbackground=BORDER,
+                highlightthickness=1,
+            )
+            card.grid(
+                row=0,
+                column=index,
+                sticky="nsew",
+                padx=(0, 8) if index < 5 else 0,
+            )
             cards.columnconfigure(index, weight=1)
-            ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor="w")
-            ttk.Label(
-                card, textvariable=self.card_vars[key], style="CardValue.TLabel"
+            tk.Frame(card, bg=color, height=3).pack(fill="x")
+            body = tk.Frame(card, bg=CARD_BG)
+            body.pack(fill="both", expand=True, padx=12, pady=9)
+            top = tk.Frame(body, bg=CARD_BG)
+            top.pack(fill="x")
+            tk.Label(
+                top, text=icon, bg=CARD_BG, fg=color, font=("Segoe UI Semibold", 11)
+            ).pack(side="left")
+            tk.Label(
+                top,
+                text=title.upper(),
+                bg=CARD_BG,
+                fg=MUTED,
+                font=("Segoe UI Semibold", 8),
+            ).pack(side="left", padx=(6, 0))
+            tk.Label(
+                body,
+                textvariable=self.card_vars[key],
+                bg=CARD_BG,
+                fg=INK,
+                font=("Segoe UI Semibold", 15),
             ).pack(anchor="w", pady=(4, 0))
 
-        controls = ttk.Frame(outer)
-        controls.pack(fill="x", pady=(0, 10))
-        ttk.Button(controls, text="Refresh", command=self.refresh).pack(side="left")
-        self.pause_button = ttk.Button(controls, text="Pause calls", command=self._toggle_pause)
-        self.pause_button.pack(side="left", padx=6)
-        ttk.Button(controls, text="Data folder", command=self._open_data).pack(side="left")
-        ttk.Button(controls, text="Core memory", command=self._open_core).pack(side="left", padx=6)
-        ttk.Button(controls, text="Digest folder", command=self._open_digests).pack(side="left")
-
-        self.tabs = ttk.Notebook(outer)
-        self.tabs.pack(fill="both", expand=True)
-        self._build_events_tab()
-        self._build_suggestions_tab()
-        self._build_chat_tab()
-        self._build_memory_tab()
-        self._build_digest_tab()
-
+    def _build_footer(self, parent: tk.Frame) -> None:
+        footer = tk.Frame(parent, bg=BG)
+        footer.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 10))
         self.footer = tk.StringVar(value="")
-        ttk.Label(outer, textvariable=self.footer, style="Sub.TLabel").pack(
-            anchor="w", pady=(8, 0)
+        tk.Label(
+            footer,
+            textvariable=self.footer,
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 8),
+            anchor="w",
+        ).pack(side="left")
+        tk.Label(
+            footer,
+            text="local only · no cloud sync",
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 8),
+        ).pack(side="right")
+
+    def _page(self, name: str, title: str, subtitle: str) -> tk.Frame:
+        page = tk.Frame(self.page_host, bg=BG)
+        page.grid(row=0, column=0, sticky="nsew")
+        header = tk.Frame(page, bg=BG)
+        header.pack(fill="x", pady=(0, 8))
+        ttk.Label(header, text=title, style="PageTitle.TLabel").pack(anchor="w")
+        ttk.Label(header, text=subtitle, style="PageSub.TLabel").pack(
+            anchor="w", pady=(1, 0)
         )
+        body = ttk.Frame(page, style="Content.TFrame")
+        body.pack(fill="both", expand=True)
+        self.pages[name] = page
+        return body
+
+    def _show_page(self, name: str) -> None:
+        page = self.pages.get(name)
+        if page is None:
+            return
+        page.tkraise()
+        for key, button in self.nav_buttons.items():
+            active = key == name
+            button.configure(
+                bg=SIDEBAR_ACTIVE if active else SIDEBAR,
+                fg=SIDEBAR_ACTIVE_TEXT if active else SIDEBAR_TEXT,
+            )
 
     def _tree(self, parent, columns: list[tuple[str, str, int]]) -> ttk.Treeview:
         frame = ttk.Frame(parent)
@@ -178,8 +473,11 @@ class AliceWindow:
         return tree
 
     def _build_events_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Events")
+        tab = self._page(
+            "events",
+            "Events",
+            "Redacted observations from your logs, messages, and attached sources.",
+        )
         self.event_tree = self._tree(
             tab,
             [
@@ -193,8 +491,11 @@ class AliceWindow:
         )
 
     def _build_suggestions_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Suggestions")
+        tab = self._page(
+            "suggestions",
+            "Suggestions",
+            "Clustered advice with evidence, runbooks, and explicit approval.",
+        )
         panes = ttk.PanedWindow(tab, orient="vertical")
         panes.pack(fill="both", expand=True)
         top = ttk.Frame(panes)
@@ -232,16 +533,37 @@ class AliceWindow:
         self.suggestion_detail.pack(fill="both", expand=True)
         buttons = ttk.Frame(bottom)
         buttons.pack(fill="x", pady=(6, 0))
-        ttk.Button(buttons, text="Mark done", command=lambda: self._set_suggestion("done")).pack(side="left")
-        ttk.Button(buttons, text="Dismiss", command=lambda: self._set_suggestion("dismissed")).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Copy suggestion", command=self._copy_suggestion).pack(side="left")
-        ttk.Button(buttons, text="Draft fix", command=self._draft_fix).pack(side="left", padx=(12, 0))
-        ttk.Button(buttons, text="Apply fix", command=self._apply_fix).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Save answer as suggestion", command=self._save_chat_as_suggestion).pack(side="right")
+        ttk.Button(
+            buttons, text="Mark done", style="Ghost.TButton",
+            command=lambda: self._set_suggestion("done")
+        ).pack(side="left")
+        ttk.Button(
+            buttons, text="Dismiss", style="Ghost.TButton",
+            command=lambda: self._set_suggestion("dismissed")
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            buttons, text="Copy", style="Ghost.TButton",
+            command=self._copy_suggestion
+        ).pack(side="left")
+        ttk.Button(
+            buttons, text="Draft fix", style="Ghost.TButton",
+            command=self._draft_fix
+        ).pack(side="left", padx=(12, 0))
+        ttk.Button(
+            buttons, text="Apply fix", style="Primary.TButton",
+            command=self._apply_fix
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            buttons, text="Save answer", style="Ghost.TButton",
+            command=self._save_chat_as_suggestion
+        ).pack(side="right")
 
     def _build_chat_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Chat")
+        tab = self._page(
+            "chat",
+            "Chat with Alice",
+            "Ask about events, suggestions, memory, or the digest. Read-only by default.",
+        )
         info = ttk.Frame(tab)
         info.pack(fill="x", pady=(0, 6))
         ttk.Label(
@@ -254,38 +576,76 @@ class AliceWindow:
         attach_row = ttk.Frame(tab)
         attach_row.pack(fill="x", pady=(0, 6))
         ttk.Button(
-            attach_row, text="Attach file...", command=self._attach_chat_file
+            attach_row, text="Attach file...", style="Ghost.TButton",
+            command=self._attach_chat_file
         ).pack(side="left")
         ttk.Button(
-            attach_row, text="Remove file", command=self._clear_chat_attachments
+            attach_row, text="Remove file", style="Ghost.TButton",
+            command=self._clear_chat_attachments
         ).pack(side="left", padx=6)
         self.chat_attachment_var = tk.StringVar(value="No file attached")
         ttk.Label(
             attach_row, textvariable=self.chat_attachment_var, style="Sub.TLabel"
         ).pack(side="left", padx=6)
 
-        frame = ttk.Frame(tab)
+        frame = tk.Frame(
+            tab, bg=CHAT_BG, highlightbackground=BORDER, highlightthickness=1
+        )
         frame.pack(fill="both", expand=True)
         self.chat_text = tk.Text(
             frame,
             wrap="word",
             font=("Segoe UI", 10),
-            background=CARD_BG,
+            background=CHAT_BG,
             foreground=INK,
             relief="flat",
-            padx=12,
-            pady=10,
+            padx=16,
+            pady=12,
             state="disabled",
         )
         scroll = ttk.Scrollbar(frame, orient="vertical", command=self.chat_text.yview)
         self.chat_text.configure(yscrollcommand=scroll.set)
         self.chat_text.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        self.chat_text.tag_configure("user", foreground=ACCENT, font=("Segoe UI Semibold", 10))
-        self.chat_text.tag_configure("assistant", foreground=INK)
-        self.chat_text.tag_configure("meta", foreground=MUTED, font=("Segoe UI", 8))
+        self.chat_text.tag_configure(
+            "meta",
+            foreground=MUTED,
+            font=("Segoe UI", 8),
+        )
+        self.chat_text.tag_configure(
+            "meta_user",
+            foreground=MUTED,
+            font=("Segoe UI", 8),
+            justify="right",
+            rmargin=12,
+        )
+        self.chat_text.tag_configure(
+            "user_bubble",
+            background=ACCENT_SOFT,
+            foreground=INK,
+            font=("Segoe UI", 10),
+            lmargin1=80,
+            lmargin2=80,
+            rmargin=12,
+            spacing1=4,
+            spacing3=6,
+            justify="right",
+        )
+        self.chat_text.tag_configure(
+            "assistant_bubble",
+            background="#ffffff",
+            foreground=INK,
+            font=("Segoe UI", 10),
+            lmargin1=12,
+            lmargin2=12,
+            rmargin=80,
+            spacing1=4,
+            spacing3=6,
+        )
 
-        input_frame = ttk.Frame(tab)
+        input_frame = tk.Frame(
+            tab, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1
+        )
         input_frame.pack(fill="x", pady=(8, 0))
         self.chat_input = tk.Text(
             input_frame,
@@ -294,28 +654,39 @@ class AliceWindow:
             font=("Segoe UI", 10),
             background=CARD_BG,
             foreground=INK,
+            insertbackground=INK,
             relief="flat",
-            padx=8,
-            pady=6,
+            padx=10,
+            pady=8,
         )
         self.chat_input.pack(side="left", fill="both", expand=True)
         self.chat_input.bind("<Control-Return>", self._send_chat_event)
         buttons = ttk.Frame(input_frame)
-        buttons.pack(side="right", fill="y", padx=(8, 0))
-        self.chat_send_button = ttk.Button(buttons, text="Send", command=self._send_chat)
-        self.chat_send_button.pack(fill="x")
-        ttk.Button(buttons, text="Clear", command=self._clear_chat).pack(fill="x", pady=(6, 0))
-        ttk.Button(buttons, text="Save answer", command=self._save_chat_as_suggestion).pack(
-            fill="x", pady=(6, 0)
+        buttons.pack(side="right", fill="y", padx=(8, 8), pady=8)
+        self.chat_send_button = ttk.Button(
+            buttons, text="Send", style="Primary.TButton", command=self._send_chat
         )
+        self.chat_send_button.pack(fill="x")
+        ttk.Button(
+            buttons, text="Clear", style="Ghost.TButton", command=self._clear_chat
+        ).pack(fill="x", pady=(6, 0))
+        ttk.Button(
+            buttons,
+            text="Save answer",
+            style="Ghost.TButton",
+            command=self._save_chat_as_suggestion,
+        ).pack(fill="x", pady=(6, 0))
         self.chat_status = tk.StringVar(value="Ready")
         ttk.Label(tab, textvariable=self.chat_status, style="Sub.TLabel").pack(
             anchor="w", pady=(6, 0)
         )
 
     def _build_memory_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Memory")
+        tab = self._page(
+            "memory",
+            "Memory",
+            "Core identity and the facts you approved.",
+        )
 
         info = ttk.Frame(tab)
         info.pack(fill="x", pady=(0, 8))
@@ -341,16 +712,31 @@ class AliceWindow:
         )
         buttons = ttk.Frame(proposals_frame)
         buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(buttons, text="Approve selected", command=self._approve).pack(side="left")
-        ttk.Button(buttons, text="Reject selected", command=self._reject).pack(side="left", padx=6)
+        ttk.Button(
+            buttons, text="Approve selected", style="Primary.TButton",
+            command=self._approve
+        ).pack(side="left")
+        ttk.Button(
+            buttons, text="Reject selected", style="Ghost.TButton",
+            command=self._reject
+        ).pack(side="left", padx=6)
 
     def _build_digest_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Digest")
+        tab = self._page(
+            "digest",
+            "Daily digest",
+            "The durable summary of what Alice noticed today.",
+        )
         buttons = ttk.Frame(tab)
         buttons.pack(fill="x", pady=(0, 8))
-        ttk.Button(buttons, text="Write digest now", command=self._write_digest).pack(side="left")
-        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left", padx=6)
+        ttk.Button(
+            buttons, text="Write digest now", style="Primary.TButton",
+            command=self._write_digest
+        ).pack(side="left")
+        ttk.Button(
+            buttons, text="Refresh", style="Ghost.TButton",
+            command=self.refresh
+        ).pack(side="left", padx=6)
         frame = ttk.Frame(tab)
         frame.pack(fill="both", expand=True)
         self.digest_text = tk.Text(
@@ -386,10 +772,18 @@ class AliceWindow:
         self.card_vars["spend"].set(
             f"${dashboard.spend_today:.2f} / ${dashboard.hard_cap:.2f}"
         )
-        self.card_vars["paused"].set("yes" if dashboard.paused else "no")
+        self.card_vars["paused"].set("Paused" if dashboard.paused else "Online")
         self.pause_button.configure(
             text="Resume calls" if dashboard.paused else "Pause calls"
         )
+        if dashboard.paused:
+            self.status_label.configure(
+                text="●  Paused", bg="#3b2f0b", fg="#fbbf24"
+            )
+        else:
+            self.status_label.configure(
+                text="●  Online", bg="#052e2b", fg="#6ee7b7"
+            )
 
         self._fill_events(dashboard)
         self._fill_suggestions(dashboard)
@@ -694,9 +1088,17 @@ class AliceWindow:
                 "meta",
             )
         for message in self._chat_messages:
-            who = "You" if message.role == "user" else "Alice"
-            self.chat_text.insert("end", f"{who}\n", "user" if message.role == "user" else "assistant")
-            self.chat_text.insert("end", message.content + "\n", "assistant")
+            is_user = message.role == "user"
+            stamp = message.created[11:16] if len(message.created) >= 16 else ""
+            who = f"You  {stamp}" if is_user else f"Alice · AI secretary  {stamp}"
+            self.chat_text.insert(
+                "end", f"{who}\n", "meta_user" if is_user else "meta"
+            )
+            self.chat_text.insert(
+                "end",
+                message.content + "\n",
+                "user_bubble" if is_user else "assistant_bubble",
+            )
             if message.error:
                 self.chat_text.insert("end", f"[error: {message.error}]\n", "meta")
             if message.citations:
@@ -709,7 +1111,7 @@ class AliceWindow:
                     self.chat_text.insert(
                         "end",
                         "Sources: " + " · ".join(labels[:6]) + "\n",
-                        "meta",
+                        "meta_user" if is_user else "meta",
                     )
             self.chat_text.insert("end", "\n")
         self.chat_text.configure(state="disabled")
@@ -765,8 +1167,9 @@ class AliceWindow:
         else:
             self.chat_status.set("Alice is thinking; this is a budgeted model call...")
         self.chat_text.configure(state="normal")
-        self.chat_text.insert("end", "You\n", "user")
-        self.chat_text.insert("end", question + "\n\n", "assistant")
+        stamp = datetime.now().strftime("%H:%M")
+        self.chat_text.insert("end", f"You  {stamp}\n", "meta_user")
+        self.chat_text.insert("end", question + "\n\n", "user_bubble")
         self.chat_text.configure(state="disabled")
         self.chat_text.see("end")
 
