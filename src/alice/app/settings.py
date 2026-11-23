@@ -30,6 +30,7 @@ from ..memory.config import MemoryConfig, parse_memory
 from ..models.config import Budget, ModelsConfig, parse_models
 from ..outputs.config import Notify, OutputsConfig, parse_outputs
 from ..plugins.config import PluginsConfig, parse_plugins
+from .tools_config import ToolsConfig, parse_tools
 
 TOP_LEVEL = {
     "models",
@@ -47,6 +48,7 @@ TOP_LEVEL = {
     "backup",
     "files",
     "actions",
+    "tools",
 }
 
 
@@ -61,6 +63,7 @@ class AppSettings:
     brain: BrainConfig
     outputs: OutputsConfig
     plugins: PluginsConfig
+    tools: ToolsConfig
 
     @property
     def data_dir(self) -> Path:
@@ -155,6 +158,7 @@ def load_settings(
         brain=parse_brain(raw.get("triage"), raw.get("consolidation")),
         outputs=parse_outputs(raw.get("notify")),
         plugins=parse_plugins(raw.get("plugins")),
+        tools=parse_tools(raw.get("tools"), data_path),
     )
 
 

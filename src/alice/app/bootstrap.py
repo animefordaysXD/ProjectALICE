@@ -13,6 +13,7 @@ from ..brain.reason import ReasoningService
 from ..core.actions import ActionRunner
 from ..brain.triage import TriageService
 from ..contracts.outputs import BudgetSnapshot
+from ..contracts.tools import ToolExecutor
 from ..core.backup import BackupService
 from ..core.events import CursorStore, Ledger, RawStore
 from ..inputs import Sensor, build_sensors
@@ -25,6 +26,7 @@ from ..models.budget import day_start
 from ..models.fake import FakeProvider
 from ..outputs import DigestWriter, SuggestionQueue, build_notifier
 from .settings import AppSettings
+from .tools import build_tools
 
 DRY_RUN_TRIAGE = json.dumps(
     {
@@ -215,6 +217,7 @@ def build_chat(
     conn: sqlite3.Connection,
     router: Router,
     memory: MemoryService,
+    tools: ToolExecutor | None = None,
 ) -> ChatService:
     return ChatService(
         conn,
@@ -222,6 +225,7 @@ def build_chat(
         memory=memory,
         hard_memory=memory.hard_block,
         data_dir=settings.data_dir,
+        tools=tools if tools is not None else build_tools(settings, conn),
     )
 
 

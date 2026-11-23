@@ -7,6 +7,7 @@ their milestones.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import sys
@@ -18,6 +19,7 @@ import click
 
 from .. import __version__
 from ..brain.consolidate import ConsolidationResult
+from ..brain.explore import WIKI_START, ExplorationService
 from ..brain.reason import ReasoningResult
 from ..brain.triage import TriageResult
 from ..core.backup import (
@@ -45,6 +47,7 @@ from ..core.startup import (
 )
 from ..inputs import PollStats, poll_once
 from ..inputs.config import Source
+from ..inputs.redact import Redactor
 from ..inputs.sensors.logscan import coerce_globs, discover_log_files
 from ..memory.core_file import CoreMemory
 from ..memory.errors import CoreMemoryError, MemoryCapError, ProposalError
@@ -67,6 +70,7 @@ from .bootstrap import (
     build_triage,
 )
 from .settings import AppSettings, load_settings
+from .tools import build_tools, ensure_calendar_file
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +130,9 @@ def init(ctx: click.Context) -> None:
         raise click.ClickException(str(exc)) from exc
 
     seeds = ensure_seed_files(config.seed_dir)
+    from .tools import ensure_calendar_file
+
+    ensure_calendar_file(config.tools.calendar_file)
 
     click.echo(_line("config", str(config.path)))
     click.echo(_line("database", str(config.db_path)))
@@ -325,6 +332,21 @@ def _prepare_runtime(config: AppSettings) -> Path | None:
     return migrate_legacy_state(config.root, config.data_dir)
 
 
+def _require_database(config: AppSettings) -> None:
+    try:
+        state = database_status(config.db_path)
+    except DatabaseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not state.initialized:
+        raise click.ClickException(
+            f"database not initialized at {config.db_path}; run `alice init` first"
+        )
+    if state.pending:
+        raise click.ClickException(
+            "database has pending migrations; run `alice init` first"
+        )
+
+
 @main.command()
 @click.option(
     "--root",
@@ -468,6 +490,107 @@ def gui(ctx: click.Context) -> None:
         run_gui(config.path, config.data_dir)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@main.command("tools")
+@click.option("--run", "tool_name", default=None, help="Run one read-only tool by name.")
+@click.option("--args", "args_text", default="{}", help="JSON object of tool arguments.")
+@click.pass_context
+def tools_command(ctx: click.Context, tool_name: str | None, args_text: str) -> None:
+    """List Alice's read-only tools, or run one."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+    _require_database(config)
+    ensure_calendar_file(config.tools.calendar_file)
+    conn = connect(config.db_path, create=False)
+    try:
+        registry = build_tools(config, conn)
+        if not tool_name:
+            for spec in registry.specs():
+                mode = "read-only" if spec.read_only else "ACTION"
+                click.echo(_line(spec.name, f"[{mode}] {spec.description}"))
+            return
+        try:
+            args = json.loads(args_text)
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(f"--args must be a JSON object: {exc}") from exc
+        if not isinstance(args, dict):
+            raise click.ClickException("--args must be a JSON object")
+        result = registry.execute(tool_name, args)
+        click.echo(result.text)
+        if not result.ok:
+            raise click.exceptions.Exit(1)
+    finally:
+        conn.close()
+
+
+@main.command()
+@click.option("--minutes", type=float, default=360.0, show_default=True)
+@click.option("--step-seconds", type=float, default=240.0, show_default=True)
+@click.option("--start", "start_url", default=WIKI_START, show_default=True)
+@click.option("--max-steps", type=int, default=500, show_default=True)
+@click.option("--dry-run", is_flag=True, help="Use the fake provider.")
+@click.pass_context
+def explore(
+    ctx: click.Context,
+    minutes: float,
+    step_seconds: float,
+    start_url: str,
+    max_steps: int,
+    dry_run: bool,
+) -> None:
+    """Run a local, read-only exploration session and leave a summary."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+    _require_database(config)
+    ensure_calendar_file(config.tools.calendar_file)
+    conn = connect(config.db_path, create=False)
+    try:
+        try:
+            router = build_models(config, conn, dry_run=dry_run)
+        except (ProviderNotConfigured, RouterError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        tools = build_tools(config, conn)
+        core = CoreMemory(
+            config.memory.core_memory_file, config.memory.hard_max_tokens
+        )
+        try:
+            persona = core.render()
+        except (CoreMemoryError, MemoryCapError):
+            persona = ""
+        redactor = Redactor(config.inputs.redaction.patterns)
+        service = ExplorationService(
+            router,
+            tools,
+            config.data_dir,
+            persona=persona,
+            sanitize=lambda text: redactor.redact(text).text,
+        )
+        try:
+            result = service.run(
+                minutes=minutes,
+                step_seconds=step_seconds,
+                start_url=start_url,
+                max_steps=max(1, max_steps),
+            )
+        except (BudgetError, ProviderError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+
+    click.echo(_line("session", str(result.session_dir)))
+    click.echo(_line("steps", str(len(result.steps))))
+    click.echo(_line("stopped", result.stop_reason))
+    click.echo(
+        _line(
+            "tokens",
+            f"{result.input_tokens:,} in / {result.output_tokens:,} out "
+            f"(${result.cost_usd:.4f})",
+        )
+    )
+    click.echo(_line("summary", str(result.summary_path)))
 
 
 @main.command()

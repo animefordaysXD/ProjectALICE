@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -71,11 +72,12 @@ class AliceWindow:
         self._fix_poll_id: str | None = None
 
         self.root.title("Alice · AI Secretary")
-        self.root.minsize(980, 640)
+        self.root.minsize(1040, 660)
         self.root.configure(bg=BG)
-        width, height = 1120, 700
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
+        width = min(1280, max(1040, screen_w - 120))
+        height = min(820, max(660, screen_h - 120))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2 - 20)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
@@ -211,7 +213,7 @@ class AliceWindow:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(1, weight=1)
 
-        sidebar = tk.Frame(self.root, bg=SIDEBAR, width=220)
+        sidebar = tk.Frame(self.root, bg=SIDEBAR, width=232)
         sidebar.grid(row=0, column=0, sticky="ns")
         sidebar.grid_propagate(False)
 
@@ -233,13 +235,16 @@ class AliceWindow:
         self._build_sidebar(sidebar)
         self._build_topbar(main)
         self._build_cards(main)
+        self._build_dashboard_tab()
         self._build_events_tab()
         self._build_suggestions_tab()
         self._build_chat_tab()
         self._build_memory_tab()
         self._build_digest_tab()
+        self._build_tools_tab()
+        self._build_system_tab()
         self._build_footer(main)
-        self._show_page("events")
+        self._show_page("dashboard")
 
     def _build_sidebar(self, parent: tk.Frame) -> None:
         brand = tk.Frame(parent, bg=SIDEBAR)
@@ -267,23 +272,18 @@ class AliceWindow:
             font=("Segoe UI", 8),
         ).pack(anchor="w")
 
-        tk.Frame(parent, bg="#1e293b", height=1).pack(fill="x", padx=18, pady=(4, 12))
-        tk.Label(
-            parent,
-            text="WORKSPACE",
-            bg=SIDEBAR,
-            fg="#64748b",
-            font=("Segoe UI Semibold", 8),
-        ).pack(anchor="w", padx=22, pady=(0, 6))
+        tk.Frame(parent, bg="#1e293b", height=1).pack(fill="x", padx=18, pady=(4, 10))
 
-        nav = [
-            ("events", "▤   Events"),
-            ("suggestions", "✦   Suggestions"),
-            ("chat", "✉   Chat"),
-            ("memory", "◈   Memory"),
-            ("digest", "▤   Digest"),
-        ]
-        for name, label in nav:
+        def section(text: str) -> None:
+            tk.Label(
+                parent,
+                text=text,
+                bg=SIDEBAR,
+                fg="#64748b",
+                font=("Segoe UI Semibold", 8),
+            ).pack(anchor="w", padx=22, pady=(6, 3))
+
+        def nav_button(name: str, label: str) -> None:
             button = tk.Button(
                 parent,
                 text=label,
@@ -296,12 +296,33 @@ class AliceWindow:
                 bd=0,
                 anchor="w",
                 padx=22,
-                pady=9,
+                pady=7,
                 font=("Segoe UI", 10),
                 cursor="hand2",
             )
             button.pack(fill="x", pady=1)
             self.nav_buttons[name] = button
+
+        section("OVERVIEW")
+        for name, label in (
+            ("dashboard", "◉   Dashboard"),
+            ("events", "▤   Events"),
+            ("suggestions", "✦   Suggestions"),
+        ):
+            nav_button(name, label)
+        section("ASSISTANT")
+        for name, label in (
+            ("chat", "✉   Chat"),
+            ("memory", "◈   Memory"),
+            ("digest", "▤   Digest"),
+        ):
+            nav_button(name, label)
+        section("SYSTEM")
+        for name, label in (
+            ("tools", "⌘   Tools & plugins"),
+            ("system", "▥   System & usage"),
+        ):
+            nav_button(name, label)
 
         tk.Frame(parent, bg=SIDEBAR).pack(fill="both", expand=True)
         status = tk.Frame(parent, bg=SIDEBAR)
@@ -459,6 +480,47 @@ class AliceWindow:
             font=("Segoe UI", 8),
         ).pack(side="right")
 
+    def _tile(
+        self,
+        parent: tk.Frame,
+        column: int,
+        title: str,
+        color: str,
+        variable: tk.StringVar,
+        hint: str = "",
+    ) -> None:
+        card = tk.Frame(
+            parent, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1
+        )
+        card.grid(row=0, column=column, sticky="nsew", padx=(0, 8))
+        parent.columnconfigure(column, weight=1)
+        tk.Frame(card, bg=color, height=3).pack(fill="x")
+        body = tk.Frame(card, bg=CARD_BG)
+        body.pack(fill="both", expand=True, padx=12, pady=9)
+        tk.Label(
+            body,
+            text=title.upper(),
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w")
+        tk.Label(
+            body,
+            textvariable=variable,
+            bg=CARD_BG,
+            fg=INK,
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w", pady=(3, 0))
+        if hint:
+            tk.Label(
+                body,
+                text=hint,
+                bg=CARD_BG,
+                fg=MUTED,
+                font=("Segoe UI", 7),
+                anchor="w",
+            ).pack(anchor="w")
+
     def _page(self, name: str, title: str, subtitle: str) -> tk.Frame:
         page = tk.Frame(self.page_host, bg=BG)
         page.grid(row=0, column=0, sticky="nsew")
@@ -599,7 +661,7 @@ class AliceWindow:
         tab = self._page(
             "chat",
             "Chat with Alice",
-            "Ask about events, suggestions, memory, or the digest. Read-only by default.",
+            "Ask about events, memory, the digest, your PC, calendar, email, or the web.",
         )
         tab.grid_rowconfigure(2, weight=1)
         tab.grid_columnconfigure(0, weight=1)
@@ -607,8 +669,8 @@ class AliceWindow:
         info.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ttk.Label(
             info,
-            text="Ask about events, suggestions, memory, or the digest. "
-            "Alice is read-only: chat can advise, not act.",
+            text="Alice can use read-only tools: time, system, files, web, calendar, email. "
+            "Changes still need explicit approval.",
             style="Sub.TLabel",
         ).pack(side="left")
 
@@ -793,6 +855,224 @@ class AliceWindow:
         self.digest_text.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
+    def _build_dashboard_tab(self) -> None:
+        tab = self._page(
+            "dashboard",
+            "Dashboard",
+            "The short version: health, activity, tokens, memory, and tools.",
+        )
+        self.home_vars: dict[str, tk.StringVar] = {}
+        tiles = tk.Frame(tab, bg=BG)
+        tiles.pack(fill="x", pady=(4, 10))
+        for column, (key, title, color, hint) in enumerate(
+            (
+                ("state", "State", GREEN, "model calls"),
+                ("cpu", "CPU", ACCENT, "current load"),
+                ("memory", "Memory", VIOLET, "system RAM"),
+                ("disk", "Disk free", AMBER, "home drive"),
+                ("tokens", "Tokens today", PINK, "in + out"),
+                ("toolcalls", "Tool calls", ACCENT, "today / total"),
+            )
+        ):
+            variable = tk.StringVar(value="—")
+            self.home_vars[key] = variable
+            self._tile(tiles, column, title, color, variable, hint)
+
+        glance = tk.Frame(
+            tab, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1
+        )
+        glance.pack(fill="x", pady=(0, 10))
+        tk.Frame(glance, bg=ACCENT, height=2).pack(fill="x")
+        body = tk.Frame(glance, bg=CARD_BG)
+        body.pack(fill="x", padx=14, pady=10)
+        tk.Label(
+            body,
+            text="TODAY AT A GLANCE",
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w")
+        self.home_summary = tk.StringVar(value="Loading…")
+        tk.Label(
+            body,
+            textvariable=self.home_summary,
+            bg=CARD_BG,
+            fg=INK,
+            font=("Segoe UI", 10),
+            justify="left",
+            anchor="w",
+            wraplength=950,
+        ).pack(anchor="w", pady=(4, 0))
+
+        panes = ttk.PanedWindow(tab, orient="horizontal")
+        panes.pack(fill="both", expand=True)
+        events_frame = ttk.LabelFrame(panes, text="Latest events", padding=6)
+        tools_frame = ttk.LabelFrame(panes, text="Latest tool calls", padding=6)
+        panes.add(events_frame, weight=3)
+        panes.add(tools_frame, weight=2)
+        self.home_event_tree = self._tree(
+            events_frame,
+            [
+                ("ts", "Time", 120),
+                ("source", "Source", 120),
+                ("text", "Redacted text", 420),
+            ],
+        )
+        self.home_tool_tree = self._tree(
+            tools_frame,
+            [
+                ("tool", "Tool", 120),
+                ("ok", "OK", 40),
+                ("summary", "Summary", 320),
+            ],
+        )
+
+    def _build_tools_tab(self) -> None:
+        tab = self._page(
+            "tools",
+            "Tools & plugins",
+            "Read-only integrations Alice can use from chat. Changes still need approval.",
+        )
+        row = ttk.Frame(tab)
+        row.pack(fill="x", pady=(0, 6))
+        ttk.Button(
+            row,
+            text="Open Wikipedia",
+            style="Ghost.TButton",
+            command=lambda: webbrowser.open("https://en.wikipedia.org/wiki/Main_Page"),
+        ).pack(side="left")
+        ttk.Button(
+            row,
+            text="Calendar folder",
+            style="Ghost.TButton",
+            command=self._open_calendar_folder,
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            row,
+            text="Exploration session",
+            style="Ghost.TButton",
+            command=self._open_exploration,
+        ).pack(side="left")
+        ttk.Button(
+            row, text="Refresh", style="Ghost.TButton", command=self.refresh
+        ).pack(side="right")
+        self.tool_note = tk.StringVar(value="")
+        ttk.Label(tab, textvariable=self.tool_note, style="Sub.TLabel").pack(
+            anchor="w", pady=(0, 6)
+        )
+
+        panes = ttk.PanedWindow(tab, orient="vertical")
+        panes.pack(fill="both", expand=True)
+        top = ttk.Frame(panes)
+        bottom = ttk.LabelFrame(panes, text="Recent tool calls", padding=6)
+        panes.add(top, weight=3)
+        panes.add(bottom, weight=2)
+        top.grid_rowconfigure(0, weight=1)
+        top.grid_columnconfigure(0, weight=3)
+        top.grid_columnconfigure(1, weight=2)
+        tools_frame = ttk.LabelFrame(top, text="Available tools", padding=6)
+        plugins_frame = ttk.LabelFrame(top, text="Plugins", padding=6)
+        tools_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        plugins_frame.grid(row=0, column=1, sticky="nsew")
+        self.tool_tree = self._tree(
+            tools_frame,
+            [
+                ("name", "Tool", 130),
+                ("access", "Access", 70),
+                ("status", "Status", 70),
+                ("note", "Detail", 260),
+            ],
+        )
+        self.plugin_tree = self._tree(
+            plugins_frame,
+            [
+                ("id", "Plugin", 150),
+                ("version", "Version", 70),
+                ("capabilities", "Capabilities", 160),
+            ],
+        )
+        self.tool_call_tree = self._tree(
+            bottom,
+            [
+                ("id", "ID", 45),
+                ("created", "Time", 150),
+                ("tool", "Tool", 130),
+                ("ok", "OK", 40),
+                ("duration", "ms", 60),
+                ("summary", "Summary", 520),
+            ],
+        )
+
+    def _build_system_tab(self) -> None:
+        tab = self._page(
+            "system",
+            "System & usage",
+            "Live hardware counters plus every model token Alice has accounted for.",
+        )
+        self.system_vars: dict[str, tk.StringVar] = {}
+        tiles = tk.Frame(tab, bg=BG)
+        tiles.pack(fill="x", pady=(4, 8))
+        for column, (key, title, color, hint) in enumerate(
+            (
+                ("cpu", "CPU", ACCENT, "logical cores"),
+                ("memory", "Memory", VIOLET, "used / total"),
+                ("disk", "Disk", AMBER, "free / total"),
+                ("uptime", "Uptime", GREEN, "hours"),
+                ("processes", "Processes", PINK, "running"),
+                ("calls", "Model calls", ACCENT, "all time"),
+            )
+        ):
+            variable = tk.StringVar(value="—")
+            self.system_vars[key] = variable
+            self._tile(tiles, column, title, color, variable, hint)
+
+        token_row = tk.Frame(tab, bg=BG)
+        token_row.pack(fill="x", pady=(0, 8))
+        self.system_vars["input"] = tk.StringVar(value="—")
+        self.system_vars["output"] = tk.StringVar(value="—")
+        self.system_vars["tokens"] = tk.StringVar(value="—")
+        self.system_vars["cost"] = tk.StringVar(value="—")
+        for column, (key, title, color, hint) in enumerate(
+            (
+                ("input", "Input tokens", CYAN, "prompt"),
+                ("output", "Output tokens", PINK, "completion"),
+                ("tokens", "Total tokens", VIOLET, "all time"),
+                ("cost", "Cost", GREEN, "reported USD"),
+            )
+        ):
+            self._tile(token_row, column, title, color, self.system_vars[key], hint)
+
+        self.system_note = tk.StringVar(value="")
+        ttk.Label(tab, textvariable=self.system_note, style="Sub.TLabel").pack(
+            anchor="w", pady=(0, 6)
+        )
+        panes = ttk.PanedWindow(tab, orient="horizontal")
+        panes.pack(fill="both", expand=True)
+        tier_frame = ttk.LabelFrame(panes, text="Usage by tier", padding=6)
+        day_frame = ttk.LabelFrame(panes, text="Usage by day", padding=6)
+        panes.add(tier_frame, weight=1)
+        panes.add(day_frame, weight=1)
+        self.usage_tier_tree = self._tree(
+            tier_frame,
+            [
+                ("label", "Tier", 110),
+                ("calls", "Calls", 60),
+                ("input", "Input", 100),
+                ("output", "Output", 100),
+                ("cost", "Cost", 85),
+            ],
+        )
+        self.usage_day_tree = self._tree(
+            day_frame,
+            [
+                ("label", "Day", 110),
+                ("calls", "Calls", 60),
+                ("input", "Input", 100),
+                ("output", "Output", 100),
+                ("cost", "Cost", 85),
+            ],
+        )
+
     # -- data --------------------------------------------------------------
 
     def refresh(self) -> None:
@@ -827,6 +1107,9 @@ class AliceWindow:
         self._fill_events(dashboard)
         self._fill_suggestions(dashboard)
         self._fill_memory(dashboard)
+        self._fill_dashboard(dashboard)
+        self._fill_tools(dashboard)
+        self._fill_system(dashboard)
         self._set_digest(dashboard.digest_text)
 
         self.core_label.set(
@@ -887,6 +1170,187 @@ class AliceWindow:
                 self.suggestion_tree.selection_set(item)
                 self.suggestion_tree.focus(item)
         self._show_suggestion_detail()
+
+    def _fill_dashboard(self, dashboard: Dashboard) -> None:
+        hardware = dashboard.hardware
+        total_events = sum(dashboard.status_counts.values())
+        self.home_vars["state"].set("Paused" if dashboard.paused else "Online")
+        self.home_vars["cpu"].set(f"{hardware.get('cpu_percent', 0)}%")
+        self.home_vars["memory"].set(
+            f"{hardware.get('memory_used_gb', 0)} / "
+            f"{hardware.get('memory_total_gb', 0)} GB"
+        )
+        self.home_vars["disk"].set(f"{hardware.get('disk_free_gb', 0)} GB")
+        self.home_vars["tokens"].set(_number(dashboard.usage_today.total_tokens))
+        self.home_vars["toolcalls"].set(
+            f"{dashboard.tool_calls_today} / {dashboard.tool_calls_total}"
+        )
+
+        exploration = dashboard.exploration or {}
+        exploration_line = "No exploration session yet."
+        if exploration:
+            exploration_line = (
+                f"Exploration: {exploration.get('status', 'unknown')} · "
+                f"{exploration.get('steps', 0)} steps · "
+                f"{exploration.get('current_title') or 'starting'}"
+            )
+        email = next(
+            (tool for tool in dashboard.tools if tool.name == "email.recent"), None
+        )
+        email_line = (
+            "email ready"
+            if email and email.enabled
+            else f"email {email.note if email else 'unavailable'}"
+        )
+        self.home_summary.set(
+            f"{total_events:,} events · {dashboard.new_above_gate} above gate · "
+            f"{dashboard.queued_suggestions} queued suggestions · "
+            f"{dashboard.tool_calls_total} tool calls · "
+            f"{_number(dashboard.usage_total.total_tokens)} tokens all time\n"
+            f"Core memory ~{dashboard.core_tokens}/{dashboard.core_max_tokens} tokens · "
+            f"{dashboard.approved_count} approved facts · "
+            f"{dashboard.active_tasks} open tasks · {dashboard.embedded_count} embeddings\n"
+            f"{exploration_line} · {email_line}"
+        )
+
+        self._clear(self.home_event_tree)
+        for event in dashboard.events[:8]:
+            self.home_event_tree.insert(
+                "",
+                "end",
+                values=(event.ts[5:16], event.source, event.text[:140]),
+                tags=(event.status,),
+            )
+        self._clear(self.home_tool_tree)
+        for call in dashboard.recent_tool_calls[:10]:
+            self.home_tool_tree.insert(
+                "",
+                "end",
+                values=(
+                    call.tool,
+                    "yes" if call.ok else "no",
+                    call.summary[:160],
+                ),
+            )
+
+    def _fill_tools(self, dashboard: Dashboard) -> None:
+        self._clear(self.tool_tree)
+        ready = 0
+        for tool in dashboard.tools:
+            ready += 1 if tool.enabled else 0
+            self.tool_tree.insert(
+                "",
+                "end",
+                values=(
+                    tool.name,
+                    "read-only" if tool.read_only else "ACTION",
+                    "ready" if tool.enabled else "off",
+                    f"{tool.note} · {tool.description}"[:220],
+                ),
+            )
+        self.tool_note.set(
+            f"{ready}/{len(dashboard.tools)} tools ready · "
+            f"{dashboard.tool_calls_today} calls today · "
+            f"web allowlist configured in alice.yaml"
+        )
+        self._clear(self.plugin_tree)
+        if dashboard.plugins:
+            for plugin in dashboard.plugins:
+                self.plugin_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        plugin.id,
+                        plugin.version,
+                        ", ".join(plugin.capabilities) or "-",
+                    ),
+                )
+        else:
+            self.plugin_tree.insert(
+                "", "end", values=("(none registered)", "-", "-")
+            )
+        self._clear(self.tool_call_tree)
+        for call in dashboard.recent_tool_calls:
+            self.tool_call_tree.insert(
+                "",
+                "end",
+                values=(
+                    call.id,
+                    call.created,
+                    call.tool,
+                    "yes" if call.ok else "no",
+                    call.duration_ms,
+                    call.summary[:220],
+                ),
+            )
+
+    def _fill_system(self, dashboard: Dashboard) -> None:
+        hardware = dashboard.hardware
+        usage = dashboard.usage_total
+        self.system_vars["cpu"].set(
+            f"{hardware.get('cpu_percent', 0)}% · {hardware.get('cpu_count', 0)} cores"
+        )
+        self.system_vars["memory"].set(
+            f"{hardware.get('memory_used_gb', 0)} / "
+            f"{hardware.get('memory_total_gb', 0)} GB"
+        )
+        self.system_vars["disk"].set(
+            f"{hardware.get('disk_free_gb', 0)} / "
+            f"{hardware.get('disk_total_gb', 0)} GB free"
+        )
+        self.system_vars["uptime"].set(f"{hardware.get('uptime_hours', 0)} h")
+        self.system_vars["processes"].set(str(hardware.get("process_count", 0)))
+        self.system_vars["calls"].set(f"{usage.calls:,}")
+        self.system_vars["input"].set(_number(usage.input_tokens))
+        self.system_vars["output"].set(_number(usage.output_tokens))
+        self.system_vars["tokens"].set(_number(usage.total_tokens))
+        self.system_vars["cost"].set(f"${usage.cost_usd:.4f}")
+        self.system_note.set(
+            f"schema v{dashboard.schema_version} · "
+            f"core {dashboard.core_tokens}/{dashboard.core_max_tokens} tokens · "
+            f"{dashboard.summary_count} summaries · "
+            f"last consolidation {dashboard.last_consolidation or 'never'} · "
+            f"{dashboard.data_dir}"
+        )
+        self._clear(self.usage_tier_tree)
+        for row in dashboard.usage_by_tier:
+            self.usage_tier_tree.insert(
+                "",
+                "end",
+                values=(
+                    row.label,
+                    row.calls,
+                    _number(row.input_tokens),
+                    _number(row.output_tokens),
+                    f"${row.cost_usd:.4f}",
+                ),
+            )
+        self._clear(self.usage_day_tree)
+        for row in dashboard.usage_by_day:
+            self.usage_day_tree.insert(
+                "",
+                "end",
+                values=(
+                    row.label,
+                    row.calls,
+                    _number(row.input_tokens),
+                    _number(row.output_tokens),
+                    f"${row.cost_usd:.4f}",
+                ),
+            )
+
+    def _open_calendar_folder(self) -> None:
+        path = self.settings.tools.calendar_file
+        if path is None:
+            messagebox.showinfo("Alice", "No calendar file is configured.")
+            return
+        from .tools import ensure_calendar_file
+
+        ensure_calendar_file(path)
+        self._open(path.parent)
+
+    def _open_exploration(self) -> None:
+        self._open(self.settings.data_dir / "exploration")
 
     def _suggestion_by_id(self, suggestion_id: int):
         if self.dashboard is None:
@@ -1411,7 +1875,10 @@ class AliceWindow:
 
     def _open(self, path: Path) -> None:
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.suffix:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                path.mkdir(parents=True, exist_ok=True)
             os.startfile(str(path))  # type: ignore[attr-defined]
         except Exception as exc:
             messagebox.showerror("Alice", f"Cannot open {path}: {exc}")
@@ -1429,6 +1896,14 @@ class AliceWindow:
             self.root.destroy()
 
 
+def _number(value: int) -> str:
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 10_000:
+        return f"{value / 1_000:.1f}k"
+    return f"{value:,}"
+
+
 def _day_start() -> str:
     from ..models.budget import day_start
 
@@ -1444,6 +1919,9 @@ def run_gui(config_path: Path | str | None = None, data_dir: Path | str | None =
     init_db(settings.db_path)
     ensure_seed_files(settings.seed_dir)
     CoreMemory(settings.memory.core_memory_file, settings.memory.hard_max_tokens).ensure()
+    from .tools import ensure_calendar_file
+
+    ensure_calendar_file(settings.tools.calendar_file)
 
     root = tk.Tk()
     AliceWindow(root, settings)

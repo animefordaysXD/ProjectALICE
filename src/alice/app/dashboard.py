@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
-from ..core.db import current_version
+from ..core.db import current_version, utc_now
 from ..core.tokens import estimate_tokens
 from ..memory.core_file import CoreMemory
 from ..memory.errors import CoreMemoryError, MemoryCapError
-from ..models.budget import BudgetGuard
+from ..models.budget import BudgetGuard, day_start
 from .settings import AppSettings
+from .system_info import snapshot as system_snapshot
+from .tools import build_tools
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,60 @@ class ProposalRow:
 
 
 @dataclass(frozen=True)
+class UsageSummary:
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    cost_usd: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
+class UsageRow:
+    label: str
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
+class ToolCallRow:
+    id: int
+    created: str
+    tool: str
+    ok: bool
+    summary: str
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ToolInfo:
+    name: str
+    description: str
+    read_only: bool
+    enabled: bool
+    note: str
+
+
+@dataclass(frozen=True)
+class PluginInfo:
+    id: str
+    version: str
+    capabilities: tuple[str, ...]
+    description: str
+    enabled: bool
+
+
+@dataclass(frozen=True)
 class Dashboard:
     config_path: Path
     data_dir: Path
@@ -78,10 +135,26 @@ class Dashboard:
     proposals: tuple[ProposalRow, ...]
     core_path: Path
     core_tokens: int
+    core_max_tokens: int
     core_error: str | None
     digest_path: Path
     digest_text: str
     last_consolidation: str | None
+    usage_today: UsageSummary
+    usage_total: UsageSummary
+    usage_by_tier: tuple[UsageRow, ...]
+    usage_by_day: tuple[UsageRow, ...]
+    tool_calls_today: int
+    tool_calls_total: int
+    recent_tool_calls: tuple[ToolCallRow, ...]
+    tools: tuple[ToolInfo, ...]
+    plugins: tuple[PluginInfo, ...]
+    hardware: Mapping[str, Any]
+    approved_count: int
+    active_tasks: int
+    embedded_count: int
+    summary_count: int
+    exploration: Mapping[str, Any] | None
 
 
 def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard:
@@ -199,6 +272,112 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         if row is not None:
             last_consolidation = str(row[0])
 
+    usage_today = _usage(conn, "WHERE ts >= ?", (day_start(),))
+    usage_total = _usage(conn)
+    usage_by_tier = tuple(
+        UsageRow(
+            label=str(row["tier"]),
+            calls=int(row["calls"] or 0),
+            input_tokens=int(row["input_tokens"] or 0),
+            output_tokens=int(row["output_tokens"] or 0),
+            cost_usd=float(row["cost_usd"] or 0.0),
+        )
+        for row in conn.execute(
+            "SELECT tier, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, "
+            "SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd "
+            "FROM usage GROUP BY tier ORDER BY SUM(input_tokens) DESC"
+        )
+    )
+    usage_by_day = tuple(
+        UsageRow(
+            label=str(row["day"]),
+            calls=int(row["calls"] or 0),
+            input_tokens=int(row["input_tokens"] or 0),
+            output_tokens=int(row["output_tokens"] or 0),
+            cost_usd=float(row["cost_usd"] or 0.0),
+        )
+        for row in conn.execute(
+            "SELECT substr(ts, 1, 10) AS day, COUNT(*) AS calls, "
+            "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
+            "SUM(cost_usd) AS cost_usd FROM usage "
+            "GROUP BY day ORDER BY day DESC LIMIT 7"
+        )
+    )
+
+    tool_calls_today = 0
+    tool_calls_total = 0
+    recent_tool_calls: tuple[ToolCallRow, ...] = ()
+    if _has_table(conn, "tool_calls"):
+        tool_calls_today = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM tool_calls WHERE created >= ?",
+                (day_start(),),
+            ).fetchone()[0]
+        )
+        tool_calls_total = int(
+            conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+        )
+        recent_tool_calls = tuple(
+            ToolCallRow(
+                id=int(row["id"]),
+                created=str(row["created"]),
+                tool=str(row["tool"]),
+                ok=bool(row["ok"]),
+                summary=str(row["summary"] or ""),
+                duration_ms=int(row["duration_ms"] or 0),
+            )
+            for row in conn.execute(
+                "SELECT id, created, tool, ok, summary, duration_ms "
+                "FROM tool_calls ORDER BY id DESC LIMIT 50"
+            )
+        )
+
+    approved_count = int(
+        conn.execute("SELECT COUNT(*) FROM hard_memory WHERE active = 1").fetchone()[0]
+    )
+    active_tasks = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'open' AND expires >= ?",
+            (utc_now(),),
+        ).fetchone()[0]
+    )
+    embedded_count = int(
+        conn.execute("SELECT COUNT(*) FROM memory_embeddings").fetchone()[0]
+    )
+    summary_count = int(
+        conn.execute("SELECT COUNT(*) FROM summaries").fetchone()[0]
+    )
+
+    plugins = tuple(
+        PluginInfo(
+            id=str(row["id"]),
+            version=str(row["version"]),
+            capabilities=tuple(sorted(row["capabilities"] or ())),
+            description=str(row["description"] or ""),
+            enabled=True,
+        )
+        for row in conn.execute(
+            "SELECT id, version, capabilities, description FROM plugins "
+            "ORDER BY id"
+        )
+    ) if _has_table(conn, "plugins") else ()
+    registered = {plugin.id for plugin in plugins}
+    plugins = plugins + tuple(
+        PluginInfo(
+            id=name,
+            version="unknown",
+            capabilities=(),
+            description="Enabled in config but not registered at runtime.",
+            enabled=True,
+        )
+        for name in settings.plugins.enabled
+        if name not in registered
+    )
+
+    tools = _tools(settings, conn)
+    hardware = system_snapshot()
+    exploration = _exploration(settings.data_dir)
+
     return Dashboard(
         config_path=settings.path,
         data_dir=settings.data_dir,
@@ -219,11 +398,109 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         proposals=proposals,
         core_path=core.path,
         core_tokens=core_tokens,
+        core_max_tokens=settings.memory.hard_max_tokens,
         core_error=core_error,
         digest_path=digest_path,
         digest_text=digest_text,
         last_consolidation=last_consolidation,
+        usage_today=usage_today,
+        usage_total=usage_total,
+        usage_by_tier=usage_by_tier,
+        usage_by_day=usage_by_day,
+        tool_calls_today=tool_calls_today,
+        tool_calls_total=tool_calls_total,
+        recent_tool_calls=recent_tool_calls,
+        tools=tools,
+        plugins=plugins,
+        hardware=hardware,
+        approved_count=approved_count,
+        active_tasks=active_tasks,
+        embedded_count=embedded_count,
+        summary_count=summary_count,
+        exploration=exploration,
     )
+
+
+def _usage(
+    conn: sqlite3.Connection,
+    where: str = "",
+    params: tuple[object, ...] = (),
+) -> UsageSummary:
+    row = conn.execute(
+        "SELECT COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, "
+        "SUM(output_tokens) AS output_tokens, SUM(cached_tokens) AS cached_tokens, "
+        "SUM(cost_usd) AS cost_usd FROM usage " + where,
+        params,
+    ).fetchone()
+    return UsageSummary(
+        calls=int(row["calls"] or 0),
+        input_tokens=int(row["input_tokens"] or 0),
+        output_tokens=int(row["output_tokens"] or 0),
+        cached_tokens=int(row["cached_tokens"] or 0),
+        cost_usd=float(row["cost_usd"] or 0.0),
+    )
+
+
+def _tools(settings: AppSettings, conn: sqlite3.Connection) -> tuple[ToolInfo, ...]:
+    try:
+        registry = build_tools(settings, conn)
+        specs = registry.specs()
+    except Exception:
+        return ()
+    config = settings.tools
+    domains = ", ".join(config.web_domains)
+    calendar = config.calendar_file
+    email_ready = config.email_enabled and bool(
+        os.environ.get(config.email_user_env) and os.environ.get(config.email_password_env)
+    )
+    rows: list[ToolInfo] = []
+    for spec in specs:
+        enabled = True
+        note = "ready"
+        if spec.name == "web.fetch":
+            note = (
+                f"allowlist: {domains} + public hosts"
+                if config.web_allow_public
+                else f"allowlist: {domains}"
+            )
+        elif spec.name == "calendar.upcoming":
+            enabled = bool(calendar and calendar.is_file())
+            note = str(calendar) if enabled else f"no calendar file at {calendar}"
+        elif spec.name == "email.recent":
+            enabled = email_ready
+            if not config.email_enabled:
+                note = "disabled in config"
+            elif not email_ready:
+                note = (
+                    f"set {config.email_user_env} and "
+                    f"{config.email_password_env}"
+                )
+            else:
+                note = f"{config.email_host} (read-only IMAP)"
+        elif spec.name == "file.read":
+            roots = ", ".join(str(root) for root in settings.inputs.files.roots)
+            note = f"roots: {roots}"
+        rows.append(
+            ToolInfo(
+                name=spec.name,
+                description=spec.description,
+                read_only=spec.read_only,
+                enabled=enabled,
+                note=note,
+            )
+        )
+    return tuple(rows)
+
+
+def _exploration(data_dir: Path) -> Mapping[str, Any] | None:
+    path = data_dir / "exploration" / "latest.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _steps(raw: object) -> tuple[str, ...]:

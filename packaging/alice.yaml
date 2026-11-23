@@ -84,6 +84,22 @@ redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
 
+tools:
+  # Read-only tool access. Web access is allowlisted by host suffix.
+  web_domains: ['wikipedia.org']
+  # Also allow other public hosts. Loopback/private/reserved addresses are
+  # always refused, and redirects are re-checked.
+  web_allow_public: true
+  web_max_bytes: 500000
+  web_timeout_seconds: 20
+  calendar_file: './calendar.ics'
+  email_enabled: false
+  email_host: 'imap.naver.com'
+  email_port: 993
+  email_user_env: 'ALICE_NAVER_USER'
+  email_password_env: 'ALICE_NAVER_APP_PASSWORD'
+  email_max_messages: 5
+
 actions:
   # Applying a fix always requires a fresh typed confirmation in the GUI.
   # Programs are resolved from PATH and run without a shell.

@@ -51,6 +51,17 @@ def test_dashboard_snapshot(conn) -> None:
         "VALUES ('2026-11-21', ?, 3, 1)",
         (utc_now(),),
     )
+    connection.execute(
+        "INSERT INTO usage (ts, tier, model, input_tokens, cached_tokens, "
+        "output_tokens, cost_usd, purpose) "
+        "VALUES (?, 'reason', 'fake', 100, 0, 20, 0.0, 'test')",
+        (utc_now(),),
+    )
+    connection.execute(
+        "INSERT INTO tool_calls (created, tool, args, ok, summary, duration_ms) "
+        "VALUES (?, 'time.now', '{}', 1, 'Local: 12:00', 5)",
+        (utc_now(),),
+    )
     connection.commit()
     today = datetime.now().astimezone().date().isoformat()
     digest = settings.data_dir / "digests" / f"{today}.md"
@@ -59,7 +70,7 @@ def test_dashboard_snapshot(conn) -> None:
 
     dashboard = load_dashboard(settings, connection)
 
-    assert dashboard.schema_version == 10
+    assert dashboard.schema_version == 11
     assert dashboard.status_counts["escalated"] == 1
     assert dashboard.new_above_gate == 0
     assert dashboard.queued_suggestions == 1
@@ -72,6 +83,14 @@ def test_dashboard_snapshot(conn) -> None:
     assert dashboard.core_tokens > 0
     assert dashboard.digest_text == "# today\n"
     assert dashboard.last_consolidation == "2026-11-21"
+    assert dashboard.usage_total.calls == 1
+    assert dashboard.usage_total.total_tokens == 120
+    assert dashboard.tool_calls_total == 1
+    assert dashboard.recent_tool_calls[0].tool == "time.now"
+    assert dashboard.tools
+    assert dashboard.hardware["cpu_count"] >= 1
+    assert dashboard.core_max_tokens > 0
+    assert dashboard.plugins == ()
 
 
 def test_gui_module_imports() -> None:

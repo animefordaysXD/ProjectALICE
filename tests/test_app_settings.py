@@ -58,6 +58,11 @@ def test_repo_config_loads() -> None:
     assert config.inputs.files.max_bytes == 262_144
     assert config.inputs.files.max_files == 5
     assert config.core.actions.enabled is True
+    assert config.tools.web_domains == ("wikipedia.org",)
+    assert config.tools.web_allow_public is True
+    assert config.tools.calendar_file == config.data_dir / "calendar.ics"
+    assert config.tools.email_enabled is False
+    assert config.tools.email_host == "imap.naver.com"
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120
 

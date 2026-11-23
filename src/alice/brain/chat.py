@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from ..contracts.memory import MemoryStore
-from ..contracts.models import ModelRouter
+from ..contracts.models import Message, ModelRouter
+from ..contracts.tools import ToolExecutor
 from ..core.db import utc_now
+from .json_output import OutputFormatError, extract_object
 from .prompts import build_chat_messages
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class ChatService:
         hard_memory: Callable[[], str],
         data_dir: Path | str | None = None,
         max_tokens: int = MAX_CHAT_TOKENS,
+        tools: ToolExecutor | None = None,
     ) -> None:
         self.conn = conn
         self.router = router
@@ -68,6 +71,7 @@ class ChatService:
         self.hard_memory = hard_memory
         self.data_dir = Path(data_dir) if data_dir is not None else None
         self.max_tokens = max_tokens
+        self.tools = tools
 
     def history(self, limit: int = 100) -> tuple[ChatMessage, ...]:
         return load_chat_history(self.conn, limit)
@@ -92,20 +96,75 @@ class ChatService:
         user = self._save("user", text, ())
 
         context_data = self._build_context(text, attachments)
+        specs = self.tools.specs() if self.tools is not None else ()
         messages, prefix_len = build_chat_messages(
             text,
             context=self._format_context(context_data),
             history=[(message.role, message.content) for message in prior],
+            tools=specs,
         )
 
+        completion = None
+        answer: str | None = None
         try:
-            completion = self.router.complete(
-                "reason",
-                messages,
-                self.max_tokens,
-                purpose="chat",
-                cache_prefix_len=prefix_len,
-            )
+            for _ in range(5):
+                completion = self.router.complete(
+                    "reason",
+                    messages,
+                    self.max_tokens,
+                    purpose="chat",
+                    cache_prefix_len=prefix_len,
+                )
+                request = _tool_request(completion.text)
+                if (
+                    self.tools is not None
+                    and request is not None
+                    and request.get("action") == "tool"
+                ):
+                    name = str(request.get("tool") or "").strip()
+                    args = request.get("args") or {}
+                    if not isinstance(args, dict):
+                        args = {}
+                    result = self.tools.execute(name, args)
+                    messages.append(Message("assistant", completion.text.strip()))
+                    messages.append(
+                        Message(
+                            "system",
+                            f'<tool_result tool="{name}" ok="{str(result.ok).lower()}">\n'
+                            f"{result.text[:8000]}\n"
+                            "</tool_result>",
+                        )
+                    )
+                    continue
+                if request is not None and request.get("action") == "answer":
+                    value = request.get("text")
+                    if isinstance(value, str) and value.strip():
+                        answer = value.strip()
+                if answer is None:
+                    answer = completion.text.strip()
+                break
+            if answer is None:
+                messages.append(
+                    Message(
+                        "system",
+                        "You have enough tool results. Do not call another tool. "
+                        'Return the final answer as {"action":"answer","text":"..."}.',
+                    )
+                )
+                completion = self.router.complete(
+                    "reason",
+                    messages,
+                    self.max_tokens,
+                    purpose="chat-final",
+                    cache_prefix_len=prefix_len,
+                )
+                request = _tool_request(completion.text)
+                value = request.get("text") if request else None
+                answer = (
+                    value.strip()
+                    if isinstance(value, str) and value.strip()
+                    else completion.text.strip()
+                )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             logger.warning("chat call failed: %s", error)
@@ -120,19 +179,19 @@ class ChatService:
         citations = _citations(context_data)
         assistant = self._save(
             "assistant",
-            completion.text.strip(),
+            answer or "I could not settle on an answer.",
             citations,
-            input_tokens=completion.input_tokens,
-            output_tokens=completion.output_tokens,
-            cost_usd=completion.cost_usd,
+            input_tokens=completion.input_tokens if completion else 0,
+            output_tokens=completion.output_tokens if completion else 0,
+            cost_usd=completion.cost_usd if completion else 0.0,
         )
         return ChatResult(
             user=user,
             assistant=assistant,
             citations=citations,
-            input_tokens=completion.input_tokens,
-            output_tokens=completion.output_tokens,
-            cost_usd=completion.cost_usd,
+            input_tokens=completion.input_tokens if completion else 0,
+            output_tokens=completion.output_tokens if completion else 0,
+            cost_usd=completion.cost_usd if completion else 0.0,
         )
 
     # -- context -----------------------------------------------------------
@@ -358,6 +417,18 @@ def _row(row: sqlite3.Row) -> ChatMessage:
         citations=citations,
         error=row["error"],
     )
+
+
+def _tool_request(text: str) -> dict | None:
+    try:
+        payload = extract_object(text)
+    except OutputFormatError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("action") not in ("tool", "answer"):
+        return None
+    return payload
 
 
 def _has_table(conn: sqlite3.Connection, name: str) -> bool:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -81,6 +82,40 @@ class FileReader:
             size=size,
             truncated=size > len(payload),
         )
+
+    def list_dir(
+        self, path: Path | str, *, limit: int = 100
+    ) -> tuple[tuple[str, int, str], ...]:
+        """List entries under `files.roots` without reading file contents."""
+        candidate = Path(path).expanduser()
+        try:
+            resolved = candidate.resolve()
+        except OSError as exc:
+            raise FileAccessError(f"cannot resolve {candidate}: {exc}") from exc
+        if not self._allowed(resolved):
+            raise FileAccessError(
+                f"{resolved} is outside files.roots; edit the config to allow it"
+            )
+        if not resolved.is_dir():
+            raise FileAccessError(f"not a directory: {resolved}")
+        rows: list[tuple[str, int, str]] = []
+        try:
+            entries = sorted(
+                resolved.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())
+            )
+        except OSError as exc:
+            raise FileAccessError(f"cannot list {resolved}: {exc}") from exc
+        for entry in entries[: max(1, min(limit, 500))]:
+            try:
+                stat = entry.stat()
+                size = 0 if entry.is_dir() else stat.st_size
+                modified = datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).strftime("%Y-%m-%d %H:%M")
+            except OSError:
+                size, modified = 0, "?"
+            rows.append((entry.name + ("/" if entry.is_dir() else ""), size, modified))
+        return tuple(rows)
 
     def read_many(
         self, paths: Iterable[Path | str], *, max_files: int | None = None

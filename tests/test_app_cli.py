@@ -38,7 +38,7 @@ def test_init_creates_database_and_seeds(config_path: Path) -> None:
     result = run(config_path, "init")
 
     assert result.exit_code == 0, result.output
-    assert "schema      v10" in result.output
+    assert "schema      v11" in result.output
     assert (
         "migrations  applied 001_initial, 002_events_count, 003_memory, "
         "004_triage, 005_outputs, 006_consolidation, 007_hardening, 008_chat, "
@@ -80,8 +80,8 @@ def test_status_after_init(config_path: Path) -> None:
     result = run(config_path, "status")
 
     assert result.exit_code == 0, result.output
-    assert "schema      v10 (up to date)" in result.output
-    assert "tables      15" in result.output
+    assert "schema      v11 (up to date)" in result.output
+    assert "tables      16" in result.output
     assert "events      0" in result.output
     assert "spend today $0.0000 over 0 calls" in result.output
 
@@ -125,6 +125,7 @@ def test_status_reports_counts_and_spend(config_path: Path) -> None:
             "suggestions",
             "summaries",
             "tasks",
+            "tool_calls",
             "triage_batches",
             "usage",
         }

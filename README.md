@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat, read-only file attachments, clustering, and explicitly approved fix actions. 350 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, and explicitly approved fix actions. 360 tests pass.
 
 ---
 
@@ -89,9 +89,11 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
 | Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, toast cap, daily digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
-| GUI | Dashboard with events, suggestion actions, memory approvals, digest, pause/resume, local chat, and explicitly approved fixes |
-| Chat | Budgeted read-only Q&A over the ledger, suggestions, memory, digest, and explicitly attached text files |
-| Files | Read-only chat attachments under configured roots, redacted and size-capped; no writes or automatic indexing |
+| GUI | Dark synthwave dashboard, events, suggestion actions, memory approvals, digest, local chat, tools/plugins view, live hardware and token usage, pause/resume, and explicitly approved fixes |
+| Chat | Budgeted Q&A with a tool loop over the ledger, memory, digest, files, time, system, web, calendar, and email |
+| Tools | Read-only `time.now`, `system.snapshot`, `file.read`, `file.list`, `web.fetch`, `calendar.upcoming`, `email.recent`; every call audited in `tool_calls` |
+| Files | Read-only chat attachments and directory listing under configured roots, redacted and size-capped; no writes or automatic indexing |
+| Exploration | Six-hour-style autonomous read-only Wikipedia sessions with a step journal, JSONL trail, token accounting, and a final summary |
 | Actions | Model-drafted fix command, exact confirmation, executable allowlist, no shell, timeout, local output log |
 | Clustering | Stable suggestion clusters, duplicate counts, merged evidence/source events |
 | Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
@@ -100,7 +102,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Recovery | Crash-safe cursors: restart loses nothing and writes no duplicates |
 | CI | Windows GitHub Actions: tests, crash proof, exe build, smoke test, release asset |
 | Alerts | Budget refusals recorded and shown in the digest |
-| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui` |
+| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui`, `tools`, `explore` |
 | Packaging | Single-file `alice.exe`, `alice-gui.exe`, portable folder, zip, setup shortcuts |
 
 ---
@@ -224,7 +226,10 @@ alice report [--days N] [--write]
                                  Weekly spend, token, tier, and activity report
 alice startup [--install|--remove|--status]
                                  Manage the hidden logon Scheduled Task
-alice gui                        Open the read-only desktop dashboard
+alice gui                        Open the desktop dashboard
+alice tools                      List the read-only tools
+alice tools --run time.now       Run one read-only tool
+alice explore --minutes 360      Run a read-only exploration session
 ```
 
 Global options: `--config PATH` (or `ALICE_CONFIG`), `--data-dir PATH`,
@@ -297,6 +302,19 @@ gate:
 redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
+
+tools:
+  web_domains: ['wikipedia.org']   # always allowed host suffixes
+  web_allow_public: true           # other public hosts; private IPs always refused
+  web_max_bytes: 500000
+  web_timeout_seconds: 20
+  calendar_file: './calendar.ics'  # local .ics under the data directory
+  email_enabled: false             # enable after the Naver IMAP app password exists
+  email_host: 'imap.naver.com'
+  email_port: 993
+  email_user_env: 'ALICE_NAVER_USER'
+  email_password_env: 'ALICE_NAVER_APP_PASSWORD'
+  email_max_messages: 5
 
 actions:
   enabled: true
@@ -453,28 +471,34 @@ checks the consolidation hour and retries a failed daily pass after an hour.
 local Tkinter dashboard. It is read-only except for explicit administration and
 fix actions you approve:
 
-- **Overview cards:** events, eligible events, queued suggestions, pending
-  proposals, spend, paused state.
+- **Window:** 1280x820 default (clamped to the screen), centered, resizable, with
+  a dark synthwave palette and a compact sidebar.
+- **Dashboard:** state, CPU, RAM, disk free, tokens today, tool calls, a
+  plain-language "today at a glance" line, latest events, and latest tool calls.
 - **Events:** recent redacted events with status and salience.
 - **Suggestions:** priority, status, category, confidence, duplicate count,
   text, and reason. Select a row to see its steps and evidence. You can mark it
   done, dismiss it, copy it, save a chat answer, draft a fix, or approve a fix
   by typing RUN.
-- **Chat:** ask about events, suggestions, memory, or the digest. You can attach
-  text files for the question. Answers are persisted locally and include the
-  context they used.
+- **Chat:** ask about events, memory, the digest, the PC, calendar, email, or the
+  web. Alice can call read-only tools. You can attach text files. Answers are
+  persisted locally and include the context they used.
 - **Memory:** core JSON path/token count, approved memory, pending proposals
   with Approve/Reject buttons.
 - **Digest:** today's markdown; a button writes/updates it.
-- **Controls:** pause/resume model calls, open the data folder, core memory, or
-  digest folder.
-- **Refresh:** every five seconds for the dashboard; chat updates when a reply
-  arrives.
+- **Tools & plugins:** tool readiness, the web allowlist, email/calendar status,
+  registered plugins, and the recent tool-call audit.
+- **System & usage:** live CPU/memory/disk/uptime/process counters plus total
+  input, output, combined tokens, reported cost, usage by tier, and usage by day.
+- **Controls:** pause/resume model calls, open the data folder, core memory,
+  digest folder, calendar folder, or exploration folder.
+- **Refresh:** every five seconds; chat updates when a reply arrives.
 
 The GUI performs no sensing or reasoning in the background. Approving memory,
 pausing calls, marking suggestions done/dismissed, and writing a digest are
 explicit user actions. Chat is also explicit: it reads local context and makes
-one budgeted `reason`-tier call per question. It has no tools and cannot act.
+budgeted `reason`-tier calls, including at most a few read-only tool calls per
+question. It cannot change files, send mail, or run commands.
 
 ### Chat
 
@@ -483,6 +507,9 @@ The Chat tab answers questions such as:
 - "What are the most urgent open suggestions?"
 - "Why did Alice flag the queue at 03:20?"
 - "What do you remember about this project?"
+- "What time is it, and how much RAM is in use?"
+- "What is on my calendar this week?"
+- "Use Wikipedia to explain what an Ice Warrior is."
 - "What should I check first, and what can you not do?"
 
 Each answer uses:
@@ -493,12 +520,49 @@ Each answer uses:
 - up to ten high-salience events;
 - today's digest;
 - the last few chat turns;
-- any text files you explicitly attach.
+- any text files you explicitly attach;
+- read-only tool results when the question needs live state.
 
-The prompt explicitly forbids claiming actions and requires the model to say
-when the local context is insufficient. Chat history is stored in
-`chat_messages`; clearing it is a local admin action. Chat calls use the
-existing budget guard and are refused while Alice is paused.
+Available read-only tools:
+
+| Tool | What it can read |
+| --- | --- |
+| `time.now` | Local and UTC time with timezone |
+| `system.snapshot` | CPU load, RAM, disk, uptime, process count |
+| `file.read` | One text file under `files.roots` |
+| `file.list` | A directory listing under `files.roots` |
+| `web.fetch` | One page from a `tools.web_domains` host, with links |
+| `calendar.upcoming` | Upcoming events from the local `.ics` file |
+| `email.recent` | Recent Naver IMAP headers only, when enabled |
+
+Every tool call writes a row to `tool_calls` with its arguments, result summary,
+and duration. Files and web text are redacted before they reach the model or the
+transcript. The prompt forbids claiming changes and requires the model to say
+when the context is insufficient. Chat history is stored in `chat_messages`;
+clearing it is a local admin action. Chat calls use the existing budget guard
+and are refused while Alice is paused.
+
+### Email setup (Naver)
+
+Email is off until you provide an app password. In Naver, enable IMAP, create an
+application password, then set these environment variables for the user that
+runs Alice:
+
+```powershell
+setx ALICE_NAVER_USER "your-id@naver.com"
+setx ALICE_NAVER_APP_PASSWORD "the-app-password"
+```
+
+Set `tools.email_enabled: true` and restart Alice. The tool uses read-only IMAP
+(`EXAMINE`/`readonly=True`), fetches headers only, and cannot send, delete, or
+open message bodies.
+
+### Calendar setup
+
+Export your calendar to iCalendar (`.ics`) and place it at the configured
+`tools.calendar_file` (default `%LOCALAPPDATA%\Alice\calendar.ics`). Alice only
+reads events in the requested upcoming window. The GUI's **Calendar folder**
+button opens the right directory and creates an empty calendar if needed.
 
 #### File attachments
 
@@ -519,6 +583,42 @@ question and then cleared. To let Alice read outside your profile, edit
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
+
+## Exploration sessions
+
+`alice explore` runs a local, read-only wandering session. Alice starts at
+Wikipedia, reads one page, writes a short observation, and asks the `reason`
+tier to pick one on-site link from that page. It repeats until the time budget
+or model budget stops it, then writes a closing summary in her own voice.
+
+```powershell
+# six-hour session, one step roughly every four minutes
+alice explore --minutes 360 --step-seconds 240 --max-steps 500
+
+# a short verification run
+alice explore --minutes 5 --step-seconds 20 --max-steps 5
+```
+
+Each session writes under `<data>/exploration/<timestamp>/`:
+
+- `journal.md` — readable notes, page by page;
+- `steps.jsonl` — machine-readable step trail;
+- `summary.md` — the closing summary;
+- plus `<data>/exploration/latest.json` for the GUI dashboard.
+
+Safety boundaries: only `web.fetch` is used for content; no commands, mail,
+calendar writes, or file writes outside the session folder. Page text is
+untrusted, the model is told so, and the script falls back to a deterministic
+next link if the model is unavailable. Model calls go through the normal budget
+guard, so a paused or capped Alice stops the session instead of overspending.
+
+The provided helper starts a detached six-hour run and writes the console log to
+`<data>/exploration/session.log`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_exploration.ps1
+powershell -ExecutionPolicy Bypass -File scripts\exploration_status.ps1
+```
 
 ## Fix actions
 
@@ -910,7 +1010,8 @@ The data folder holds `alice.db`, `logs/`, `raw/`, `memory/core.json`,
 - The ledger stores redacted text and content hashes.
 - Observed data is wrapped as untrusted and cannot close its wrapper early.
 - Logs contain metadata, not content.
-- The model has no tools and its output is parsed, never executed.
+- Chat tools are read-only; changes still require the separate typed-RUN path.
+- Model output from triage/reasoning/consolidation is parsed, never executed.
 - Hard memory is user-approved; Alice can only propose.
 - Personal data is masked in task outcomes before they enter the archive.
 
@@ -949,9 +1050,11 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-350 tests cover:
+360 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
+- read-only tools, tool-call auditing, calendar creation, domain allowlisting;
+- chat tool loop, exploration journal/summary, and deterministic fallback;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1096,6 +1199,16 @@ milestone in the original spec.
 - The GUI is a local dashboard. It does not run sensors or reasoning in the
   background; it reads the database written by `alice run`. Chat and fixes are
   user-initiated and budgeted, not background agents.
+- Web access fetches one page at a time; it is not a browser with JavaScript,
+  sessions, or clicks. `wikipedia.org` is always allowed; `web_allow_public`
+  permits other public hosts. Loopback, private, link-local, and reserved
+  addresses are refused, and redirects are re-checked.
+- Email needs a Naver app password in environment variables; it is headers-only
+  and read-only. Calendar access is a local `.ics` export, not a live Google or
+  Naver OAuth sync.
+- Exploration sessions are model-driven and read-only. They can be dull, repeat
+  a theme, or pick a strange link; the step journal shows exactly where Alice
+  went, and `latest.json` is the live status.
 - Fix actions are model-drafted. The command may be wrong; approve only what you
   understand. There is no automatic execution.
 - Chat answers are only as good as the local context. If the ledger has no

@@ -8,6 +8,7 @@ import pytest
 from alice.brain.chat import ChatError, ChatService, load_chat_history
 from alice.contracts.memory import MemoryItem, Recall
 from alice.contracts.models import Completion, Message
+from alice.contracts.tools import ToolResult, ToolSpec
 from alice.core.db import connect, init_db, utc_now
 
 
@@ -27,6 +28,31 @@ class StubRouter:
             output_tokens=30,
             cost_usd=0.002,
         )
+
+
+class ToolRouter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Message, ...]] = []
+
+    def complete(self, tier, messages, max_tokens, *, purpose=None, cache_prefix_len=None):
+        self.calls.append(tuple(messages))
+        if len(self.calls) == 1:
+            text = '{"action":"tool","tool":"time.now","args":{}}'
+        else:
+            text = '{"action":"answer","text":"It is noon, unfortunately."}'
+        return Completion(text=text, input_tokens=80, output_tokens=20, cost_usd=0.0)
+
+
+class StubTools:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def specs(self):
+        return (ToolSpec("time.now", "Current time."),)
+
+    def execute(self, name, args=None):
+        self.calls.append((name, dict(args or {})))
+        return ToolResult(True, "Local: 12:00:00", {"local": "12:00:00"})
 
 
 class StubMemory:
@@ -112,6 +138,22 @@ def test_chat_includes_attached_files(conn) -> None:
     joined = "\n".join(message.content for message in messages)
     assert "<attached_files>" in joined
     assert "hello world" in joined
+
+
+def test_chat_can_use_read_only_tools(conn) -> None:
+    router = ToolRouter()
+    tools = StubTools()
+    result = service(conn, router, tools=tools).ask("What time is it?")
+
+    assert result.assistant.content == "It is noon, unfortunately."
+    assert tools.calls == [("time.now", {})]
+    assert len(router.calls) == 2
+    assert "<tools>" in "\n".join(
+        message.content for message in router.calls[0]
+    )
+    joined_second = "\n".join(message.content for message in router.calls[1])
+    assert "<tool_result" in joined_second
+    assert "12:00:00" in joined_second
 
 
 def test_chat_error_is_saved(conn) -> None:

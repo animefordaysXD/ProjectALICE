@@ -4,6 +4,7 @@ from .memory import MemoryItem, MemoryStore, Task, TaskStore
 from .models import Completion, Message, ModelRouter
 from .outputs import BudgetSnapshot, Notifier, Suggestion, SuggestionSink
 from .plugins import CAPABILITIES, Plugin, PluginManifest
+from .tools import Tool, ToolExecutor, ToolResult, ToolSpec
 
 __all__ = [
     "BudgetSnapshot",
@@ -20,4 +21,8 @@ __all__ = [
     "SuggestionSink",
     "Task",
     "TaskStore",
+    "Tool",
+    "ToolExecutor",
+    "ToolResult",
+    "ToolSpec",
 ]
