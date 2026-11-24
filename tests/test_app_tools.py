@@ -26,6 +26,7 @@ def test_tool_catalog_is_read_only(tools) -> None:
     names = [spec.name for spec in specs]
     assert "time.now" in names
     assert "system.snapshot" in names
+    assert "activity.snapshot" in names
     assert "web.fetch" in names
     assert "file.read" in names
     assert "file.list" in names

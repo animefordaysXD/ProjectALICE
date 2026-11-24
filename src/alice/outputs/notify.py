@@ -46,29 +46,35 @@ class WindowsToastNotifier:
             logger.warning("win11toast is not installed; toast delivery unavailable")
             return False
 
-        result = {"ok": False}
+        result = {"ok": False, "error": None}
 
         def send() -> None:
             try:
-                toast(title, body)
+                # win11toast waits until the toast is clicked, dismissed, or
+                # fails. That is normal and can outlive this short handoff.
+                toast(
+                    title,
+                    body,
+                    on_click=lambda *_: None,
+                    on_dismissed=lambda *_: None,
+                    on_failed=lambda *_: None,
+                )
                 result["ok"] = True
             except Exception as exc:
+                result["error"] = exc
                 logger.warning("toast delivery failed: %s", type(exc).__name__)
 
         thread = threading.Thread(target=send, name="alice-toast", daemon=True)
         thread.start()
-        thread.join(self.timeout)
+        # Give WinRT a moment to raise an immediate error. A live thread is
+        # the normal state after the toast is displayed, not a failure.
+        thread.join(min(1.0, max(0.25, self.timeout)))
         if thread.is_alive():
+            return True
+        if result["error"] is not None or not result["ok"]:
             self._blocked_until = time.monotonic() + self.cooldown
-            logger.warning(
-                "toast delivery timed out after %.1fs; skipping toasts for %.0fs",
-                self.timeout,
-                self.cooldown,
-            )
             return False
-        if not result["ok"]:
-            self._blocked_until = time.monotonic() + self.cooldown
-        return bool(result["ok"])
+        return True
 
 
 def build_notifier(config: Notify, *, dry_run: bool = False) -> Notifier:

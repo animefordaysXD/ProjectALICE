@@ -13,9 +13,12 @@ from typing import Any, Mapping
 from ..brain.growth import GrowthMemoryRow, GrowthService, GrowthSessionRow
 from ..core.db import current_version, utc_now
 from ..core.tokens import estimate_tokens
+from ..inputs.redact import Redactor
 from ..memory.core_file import CoreMemory
 from ..memory.errors import CoreMemoryError, MemoryCapError
 from ..models.budget import BudgetGuard, day_start
+from .activity import snapshot as activity_snapshot
+from .calendar import read_ics
 from .settings import AppSettings
 from .system_info import snapshot as system_snapshot
 from .tools import build_tools
@@ -116,6 +119,16 @@ class PluginInfo:
 
 
 @dataclass(frozen=True)
+class AmbientAlertRow:
+    id: int
+    created: str
+    kind: str
+    title: str
+    body: str
+    suggestion_id: int | None
+
+
+@dataclass(frozen=True)
 class Dashboard:
     config_path: Path
     data_dir: Path
@@ -159,6 +172,9 @@ class Dashboard:
     growth_memories: tuple[GrowthMemoryRow, ...]
     growth_sessions: tuple[GrowthSessionRow, ...]
     growth_stats: Mapping[str, Any]
+    activity: Mapping[str, Any] | None
+    next_event: str | None
+    ambient_alerts: tuple[AmbientAlertRow, ...]
 
 
 def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard:
@@ -390,6 +406,43 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         "top_weight": growth_memories[0].weight if growth_memories else 0.0,
     }
 
+    activity = activity_snapshot()
+    activity_data: Mapping[str, Any] | None = None
+    if activity is not None:
+        redactor = Redactor(settings.inputs.redaction.patterns)
+        activity_data = {
+            "app": activity.app,
+            "category": activity.category,
+            "title": redactor.redact(activity.title).text[:200],
+            "idle_seconds": activity.idle_seconds,
+            "captured_at": activity.captured_at,
+        }
+    next_event = None
+    try:
+        calendar_events = read_ics(settings.tools.calendar_file, days=1)
+    except (OSError, TypeError):
+        calendar_events = []
+    if calendar_events:
+        event = calendar_events[0]
+        next_event = f"{event.summary} at {event.start:%a %H:%M}"
+
+    ambient_alerts: tuple[AmbientAlertRow, ...] = ()
+    if _has_table(conn, "ambient_alerts"):
+        ambient_alerts = tuple(
+            AmbientAlertRow(
+                id=int(row["id"]),
+                created=str(row["created"]),
+                kind=str(row["kind"]),
+                title=str(row["title"]),
+                body=str(row["body"]),
+                suggestion_id=row["suggestion_id"],
+            )
+            for row in conn.execute(
+                "SELECT id, created, kind, title, body, suggestion_id "
+                "FROM ambient_alerts ORDER BY id DESC LIMIT 20"
+            )
+        )
+
     return Dashboard(
         config_path=settings.path,
         data_dir=settings.data_dir,
@@ -433,6 +486,9 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         growth_memories=growth_memories,
         growth_sessions=growth_sessions,
         growth_stats=growth_stats,
+        activity=activity_data,
+        next_event=next_event,
+        ambient_alerts=ambient_alerts,
     )
 
 

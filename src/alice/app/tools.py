@@ -20,7 +20,7 @@ import ssl
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -29,6 +29,8 @@ from typing import Any, Mapping
 from ..contracts.tools import Tool, ToolResult, ToolSpec
 from ..inputs.files import FileAccessError, FileReader
 from ..inputs.redact import Redactor
+from .activity import snapshot as activity_snapshot
+from .calendar import read_ics
 from .settings import AppSettings
 from .system_info import snapshot as system_snapshot
 from .tools_config import ToolsConfig
@@ -70,6 +72,7 @@ class ToolRegistry:
         self.tools: dict[str, Tool] = {
             "time.now": TimeTool(),
             "system.snapshot": SystemTool(),
+            "activity.snapshot": ActivityTool(),
             "web.fetch": WebFetchTool(config),
             "file.read": FileReadTool(file_reader),
             "file.list": FileListTool(file_reader),
@@ -151,6 +154,38 @@ class SystemTool:
             f"Uptime: {data['uptime_hours']} hours"
         )
         return ToolResult(True, text, data)
+
+
+class ActivityTool:
+    spec = ToolSpec(
+        "activity.snapshot",
+        "Read the current foreground app, redacted window title, and idle time.",
+    )
+
+    def run(self, args: Mapping[str, Any]) -> ToolResult:
+        activity = activity_snapshot()
+        if activity is None:
+            return ToolResult(
+                False,
+                "Foreground activity is only available on Windows desktops.",
+            )
+        lines = [
+            f"App: {activity.app or 'unknown'}",
+            f"Category: {activity.category}",
+            f"Idle: {activity.idle_seconds}s",
+        ]
+        if activity.title:
+            lines.append(f"Window: {activity.title}")
+        return ToolResult(
+            True,
+            "\n".join(lines),
+            {
+                "app": activity.app,
+                "category": activity.category,
+                "idle_seconds": activity.idle_seconds,
+                "captured_at": activity.captured_at,
+            },
+        )
 
 
 class WebFetchTool:
@@ -314,15 +349,15 @@ class CalendarTool:
                 f"Calendar file not found: {path}. Export an .ics file or configure tools.calendar_file.",
             )
         try:
-            events = _read_ics(path, int(args.get("days", 7)))
+            events = read_ics(path, int(args.get("days", 7)))
         except OSError as exc:
             return ToolResult(False, f"Cannot read calendar: {exc}")
         if not events:
             return ToolResult(True, "No upcoming events in the calendar window.")
         lines = [
-            f"{start:%Y-%m-%d %H:%M}  {summary}"
-            + (f"  ({location})" if location else "")
-            for start, summary, location in events
+            f"{event.start:%Y-%m-%d %H:%M}  {event.summary}"
+            + (f"  ({event.location})" if event.location else "")
+            for event in events
         ]
         return ToolResult(True, "\n".join(lines), {"count": len(events)})
 
@@ -495,47 +530,4 @@ def _decode_header(value: str) -> str:
     return "".join(out).strip()
 
 
-def _read_ics(path: Path, days: int) -> list[tuple[datetime, str, str]]:
-    text = path.read_text(encoding="utf-8-sig", errors="replace")
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"\n[ \t]", "", text)
-    now = datetime.now().astimezone()
-    end = now + timedelta(days=max(1, min(days, 365)))
-    events: list[tuple[datetime, str, str]] = []
-    for block in re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", text, re.S):
-        fields: dict[str, str] = {}
-        for line in block.splitlines():
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            key = key.split(";", 1)[0].upper()
-            fields[key] = value.strip()
-        start = _parse_ics_datetime(fields.get("DTSTART", ""))
-        if start is None or start < now or start > end:
-            continue
-        events.append(
-            (
-                start,
-                fields.get("SUMMARY", "(untitled)"),
-                fields.get("LOCATION", ""),
-            )
-        )
-    return sorted(events)
 
-
-def _parse_ics_datetime(value: str) -> datetime | None:
-    if not value:
-        return None
-    value = value.strip()
-    for fmt in ("%Y%m%dT%H%M%SZ", "%Y%m%dT%H%M%S", "%Y%m%dT%H%MZ", "%Y%m%d"):
-        try:
-            parsed = datetime.strptime(value, fmt)
-            if fmt.endswith("Z"):
-                return parsed.replace(tzinfo=timezone.utc).astimezone()
-            return parsed.astimezone()
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(value).astimezone()
-    except ValueError:
-        return None

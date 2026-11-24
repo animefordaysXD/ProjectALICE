@@ -26,6 +26,7 @@ from ..models import BudgetGuard, Router, UsageLog, build_router
 from ..models.budget import day_start
 from ..models.fake import FakeProvider
 from ..outputs import DigestWriter, SuggestionQueue, build_notifier
+from .ambient import AmbientMonitor
 from .settings import AppSettings
 from .tools import build_tools
 
@@ -167,6 +168,21 @@ def build_triage(
 
 def build_queue(conn: sqlite3.Connection) -> SuggestionQueue:
     return SuggestionQueue(conn)
+
+
+def build_ambient(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    queue: SuggestionQueue,
+) -> AmbientMonitor:
+    redactor = Redactor(settings.inputs.redaction.patterns)
+    return AmbientMonitor(
+        conn,
+        settings.ambient,
+        queue,
+        settings.tools.calendar_file,
+        sanitize=lambda text: redactor.redact(text).text,
+    )
 
 
 def build_reasoning(

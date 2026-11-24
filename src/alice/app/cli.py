@@ -58,6 +58,7 @@ from ..models import RouterError
 from ..models.budget import BudgetError, BudgetGuard, clear_pause, pause_file, set_pause
 from ..outputs.report import render_report, write_report
 from .bootstrap import (
+    build_ambient,
     build_backup,
     build_consolidation,
     build_digest,
@@ -1074,6 +1075,8 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     sensors, gate = ingestion.sensors, ingestion.gate
     memory = build_memory(config, conn)
     queue = build_queue(conn)
+    ambient = build_ambient(config, conn, queue)
+    ensure_calendar_file(config.tools.calendar_file)
     try:
         router = build_models(config, conn, dry_run=dry_run)
         triage = build_triage(config, conn, router, memory, queue)
@@ -1117,6 +1120,22 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                 indexed = 0
             if once and indexed:
                 click.echo(_line("indexed", f"{indexed} memories"))
+
+            try:
+                ambient_ids = ambient.tick()
+            except Exception:
+                logger.exception("ambient monitor failed")
+                ambient_ids = ()
+            if ambient_ids:
+                if once:
+                    click.echo(
+                        _line("ambient", f"queued suggestions {list(ambient_ids)}")
+                    )
+                else:
+                    click.echo(
+                        f"{datetime.now():%H:%M:%S} ambient suggestions="
+                        f"{','.join(str(item) for item in ambient_ids)}"
+                    )
 
             now = time.monotonic()
             if once or now - last_triage >= triage_interval:

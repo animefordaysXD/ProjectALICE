@@ -242,6 +242,7 @@ class AliceWindow:
         self._build_memory_tab()
         self._build_growth_tab()
         self._build_digest_tab()
+        self._build_ambient_tab()
         self._build_tools_tab()
         self._build_system_tab()
         self._build_footer(main)
@@ -321,6 +322,7 @@ class AliceWindow:
             nav_button(name, label)
         section("SYSTEM")
         for name, label in (
+            ("ambient", "◉   Ambient"),
             ("tools", "⌘   Tools & plugins"),
             ("system", "▥   System & usage"),
         ):
@@ -979,6 +981,62 @@ class AliceWindow:
             ],
         )
 
+    def _build_ambient_tab(self) -> None:
+        tab = self._page(
+            "ambient",
+            "Ambient",
+            "Local foreground activity, the next calendar event, and recent pings. "
+            "No keystrokes, screenshots, or clipboard.",
+        )
+        top = tk.Frame(tab, bg=BG)
+        top.pack(fill="x", pady=(4, 8))
+        self.ambient_now = tk.StringVar(value="Now: unavailable")
+        self.ambient_next = tk.StringVar(value="Next: no calendar events")
+        tk.Label(
+            top,
+            textvariable=self.ambient_now,
+            bg=CARD_BG,
+            fg=INK,
+            font=("Segoe UI Semibold", 12),
+            padx=14,
+            pady=10,
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+        tk.Label(
+            top,
+            textvariable=self.ambient_next,
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Segoe UI", 10),
+            padx=14,
+            pady=10,
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=(8, 0))
+        controls = ttk.Frame(tab)
+        controls.pack(fill="x", pady=(0, 6))
+        self.ambient_note = tk.StringVar(value="")
+        ttk.Label(controls, textvariable=self.ambient_note, style="Sub.TLabel").pack(
+            side="left"
+        )
+        ttk.Button(
+            controls,
+            text="Calendar folder",
+            style="Ghost.TButton",
+            command=self._open_calendar_folder,
+        ).pack(side="right")
+        ttk.Button(
+            controls, text="Refresh", style="Ghost.TButton", command=self.refresh
+        ).pack(side="right", padx=6)
+        self.ambient_tree = self._tree(
+            tab,
+            [
+                ("created", "Time", 150),
+                ("kind", "Kind", 100),
+                ("title", "What Alice noticed", 650),
+                ("suggestion", "Suggestion", 80),
+            ],
+        )
+
     def _build_tools_tab(self) -> None:
         tab = self._page(
             "tools",
@@ -1160,6 +1218,7 @@ class AliceWindow:
         self._fill_suggestions(dashboard)
         self._fill_memory(dashboard)
         self._fill_growth(dashboard)
+        self._fill_ambient(dashboard)
         self._fill_dashboard(dashboard)
         self._fill_tools(dashboard)
         self._fill_system(dashboard)
@@ -1224,6 +1283,40 @@ class AliceWindow:
                 self.suggestion_tree.focus(item)
         self._show_suggestion_detail()
 
+    def _fill_ambient(self, dashboard: Dashboard) -> None:
+        activity = dashboard.activity or {}
+        if activity:
+            idle = int(activity.get("idle_seconds") or 0)
+            idle_text = "active" if idle < 60 else f"idle {idle // 60}m"
+            self.ambient_now.set(
+                f"Now: {activity.get('app') or 'unknown'} "
+                f"({activity.get('category') or 'other'}) · {idle_text}\n"
+                f"{activity.get('title') or 'No window title'}"
+            )
+        else:
+            self.ambient_now.set("Now: foreground activity unavailable")
+        self.ambient_next.set(
+            f"Next: {dashboard.next_event}"
+            if dashboard.next_event
+            else "Next: no calendar events in the next day"
+        )
+        self.ambient_note.set(
+            f"{len(dashboard.ambient_alerts)} recent ambient alerts · "
+            "quiet hours and the toast cap still apply"
+        )
+        self._clear(self.ambient_tree)
+        for alert in dashboard.ambient_alerts:
+            self.ambient_tree.insert(
+                "",
+                "end",
+                values=(
+                    alert.created[:19].replace("T", " "),
+                    alert.kind,
+                    alert.body,
+                    f"#{alert.suggestion_id}" if alert.suggestion_id else "-",
+                ),
+            )
+
     def _fill_dashboard(self, dashboard: Dashboard) -> None:
         hardware = dashboard.hardware
         total_events = sum(dashboard.status_counts.values())
@@ -1255,6 +1348,21 @@ class AliceWindow:
             if email and email.enabled
             else f"email {email.note if email else 'unavailable'}"
         )
+        activity = dashboard.activity or {}
+        if activity:
+            idle = int(activity.get("idle_seconds") or 0)
+            idle_text = "active" if idle < 60 else f"idle {idle // 60}m"
+            now_line = (
+                f"Now: {activity.get('app') or 'unknown'} "
+                f"({activity.get('category') or 'other'}), {idle_text}"
+            )
+        else:
+            now_line = "Now: activity unavailable"
+        next_line = (
+            f"Next: {dashboard.next_event}"
+            if dashboard.next_event
+            else "Next: no calendar events"
+        )
         self.home_summary.set(
             f"{total_events:,} events · {dashboard.new_above_gate} above gate · "
             f"{dashboard.queued_suggestions} queued suggestions · "
@@ -1266,8 +1374,8 @@ class AliceWindow:
             f"Growth: {dashboard.growth_stats['memories']} dispositions from "
             f"{dashboard.growth_stats['sessions']} "
             f"session{'s' if dashboard.growth_stats['sessions'] != 1 else ''} · "
-            f"top weight {dashboard.growth_stats['top_weight']:.2f} · "
-            f"{exploration_line} · {email_line}"
+            f"top weight {dashboard.growth_stats['top_weight']:.2f}\n"
+            f"{now_line} · {next_line} · {exploration_line} · {email_line}"
         )
 
         self._clear(self.home_event_tree)

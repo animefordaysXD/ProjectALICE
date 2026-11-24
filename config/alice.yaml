@@ -120,6 +120,18 @@ tools:
   email_password_env: 'ALICE_NAVER_APP_PASSWORD'
   email_max_messages: 5
 
+ambient:
+  # Local foreground-app and calendar monitoring. No keystrokes, screenshots,
+  # clipboard, or browsing history.
+  enabled: true
+  calendar_lookahead_minutes: 30
+  focus_minutes: 90
+  idle_minutes: 30
+  switch_window_minutes: 30
+  switch_threshold: 20
+  late_night_hour: 1
+  max_alerts_per_hour: 2
+
 growth:
   # Slow-weighted dispositions learned from exploration sessions. Core memory
   # stays Jo-only; this is a separate, subordinate layer.

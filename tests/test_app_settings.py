@@ -67,6 +67,9 @@ def test_repo_config_loads() -> None:
     assert config.growth.max_weight == 0.80
     assert config.growth.daily_decay == 0.995
     assert config.growth.render_max_tokens == 450
+    assert config.ambient.enabled is True
+    assert config.ambient.focus_minutes == 90
+    assert config.ambient.calendar_lookahead_minutes == 30
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120
 

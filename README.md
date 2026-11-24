@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, and a slow-weighted growth memory that learns from exploration sessions. 369 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, and passive local calendar/activity monitoring with suggested pings. 377 tests pass.
 
 ---
 
@@ -91,7 +91,9 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
 | GUI | Dark synthwave dashboard, events, suggestion actions, memory approvals, digest, local chat, tools/plugins view, live hardware and token usage, pause/resume, and explicitly approved fixes |
 | Chat | Budgeted Q&A with a tool loop over the ledger, memory, digest, files, time, system, web, calendar, and email |
-| Tools | Read-only `time.now`, `system.snapshot`, `file.read`, `file.list`, `web.fetch`, `calendar.upcoming`, `email.recent`; every call audited in `tool_calls` |
+| Tools | Read-only `time.now`, `system.snapshot`, `activity.snapshot`, `file.read`, `file.list`, `web.fetch`, `calendar.upcoming`, `email.recent`; every call audited in `tool_calls` |
+| Ambient | Local foreground app/category/idle, calendar lookahead, focus and context-switch feedback, queued through normal suggestions and toasts |
+| Pings | Windows toast handoff, quiet hours, hourly cap, priority filter, mark-shown state, digest fallback |
 | Files | Read-only chat attachments and directory listing under configured roots, redacted and size-capped; no writes or automatic indexing |
 | Exploration | Six-hour-style autonomous read-only Wikipedia sessions with a step journal, JSONL trail, token accounting, and a final summary |
 | Growth | Summarized session reflections become weighted dispositions; slow EMA updates, time decay, and a token-capped prompt block beneath core memory |
@@ -307,6 +309,16 @@ redaction:
   patterns:
     - {name: AWS_KEY, pattern: '\bAKIA[0-9A-Z]{16}\b'}
 
+ambient:
+  enabled: true
+  calendar_lookahead_minutes: 30
+  focus_minutes: 90
+  idle_minutes: 30
+  switch_window_minutes: 30
+  switch_threshold: 20
+  late_night_hour: 1
+  max_alerts_per_hour: 2
+
 tools:
   web_domains: ['wikipedia.org']   # always allowed host suffixes
   web_allow_public: true           # other public hosts; private IPs always refused
@@ -501,6 +513,8 @@ fix actions you approve:
 - **Growth:** active learned dispositions with effective weights, evidence
   counts, last-seen times, and the sessions that fed them.
 - **Digest:** today's markdown; a button writes/updates it.
+- **Ambient:** current foreground app/category and idle time, the next calendar
+  event, recent ambient alerts, and a shortcut to the calendar folder.
 - **Tools & plugins:** tool readiness, the web allowlist, email/calendar status,
   registered plugins, and the recent tool-call audit.
 - **System & usage:** live CPU/memory/disk/uptime/process counters plus total
@@ -544,6 +558,7 @@ Available read-only tools:
 | --- | --- |
 | `time.now` | Local and UTC time with timezone |
 | `system.snapshot` | CPU load, RAM, disk, uptime, process count |
+| `activity.snapshot` | Foreground app, redacted window title, idle seconds |
 | `file.read` | One text file under `files.roots` |
 | `file.list` | A directory listing under `files.roots` |
 | `web.fetch` | One page from a `tools.web_domains` host, with links |
@@ -598,6 +613,40 @@ question and then cleared. To let Alice read outside your profile, edit
 
 The GUI is a single `alice-gui.exe` windowed build in the packaged folder. The
 CLI remains available as `alice.exe`.
+
+## Ambient monitoring and pings
+
+`alice run` now samples a deliberately narrow local context every poll:
+
+- foreground application name;
+- redacted foreground window title;
+- idle seconds since the last input;
+- upcoming events from the local `.ics` calendar.
+
+There are no keystrokes, screenshots, clipboard reads, browser history, or file
+contents. The title is only used locally and for the explicit `activity.snapshot`
+chat tool; it is redacted first and truncated.
+
+Local rules turn only a few patterns into ordinary suggestions:
+
+| Pattern | Default | Output |
+| --- | --- | --- |
+| Calendar event within 30 minutes | enabled | P2 calendar reminder |
+| Same focus category for 90 minutes | enabled | P2 break suggestion |
+| 20 app/category switches in 30 minutes | P3 in-app suggestion | batching advice |
+| Still active after 01:00 | P3 in-app suggestion | wind-down feedback |
+
+Ambient suggestions use the normal `suggestions` table, so they appear in the
+GUI, digest, and toast queue. Quiet hours, `notify.max_toasts_per_hour`, and
+`notify.min_toast_priority` all still apply. P3 suggestions normally stay in the
+GUI/digest instead of becoming toasts.
+
+The **Ambient** page shows the current app/category, idle state, next calendar
+event, and recent ambient alerts. The Chat tab can use `activity.snapshot` to
+answer "what am I doing right now?" and `calendar.upcoming` for the next events.
+
+Foreground activity is Windows-only. Calendar monitoring needs a populated
+`calendar.ics`; an empty template is created by `alice init`.
 
 ## Exploration sessions
 
@@ -1118,13 +1167,15 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-369 tests cover:
+377 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - read-only tools, tool-call auditing, calendar creation, domain allowlisting;
 - chat tool loop, exploration journal/summary, and deterministic fallback;
 - growth extraction, slow weight updates, evidence counts, decay, rendering,
   session ingestion, and chat prompt inclusion;
+- calendar parsing, ambient dedupe/rate limits, focus and context-switch
+  feedback, idle suppression, and non-blocking toast handoff;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1284,6 +1335,17 @@ milestone in the original spec.
   weights make them visible, and low-weight notes only tint phrasing.
 - Growth never edits core memory or hard facts. It is a separate layer, and a
   future session can only reinforce it through repetition.
+- Ambient monitoring reads only the foreground window title/process and idle
+  time. It cannot see inside applications, and it is Windows-only. Window titles
+  can still contain sensitive names; they are redacted and kept local, but do not
+  enable it on a shared screen if that matters.
+- Toast delivery depends on the Windows notification service and the signed-in
+  desktop session. The notifier hands off to Windows instead of waiting for the
+  toast to be dismissed; failures fall back to the GUI and digest.
+- Calendar alerts require a populated `.ics` file; Alice does not create events
+  or sync Google/Naver calendars by itself.
+- Ambient suggestions are deterministic rules, not a model analysis. Use chat
+  with `activity.snapshot`/`calendar.upcoming` for a richer explanation.
 - If a detached session process is killed before it writes `summary.md`, run
   `alice growth ingest --session <dir>` after recovering or writing a summary.
 - Fix actions are model-drafted. The command may be wrong; approve only what you

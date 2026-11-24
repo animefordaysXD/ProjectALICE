@@ -1165,3 +1165,41 @@ A killed session without a summary cannot feed growth; that is deliberate,
 because inventing a summary from a partial journal would be less honest than
 recording the failure.
 
+## 2026-11-24 - Ambient monitoring and ping delivery
+
+### Narrow observation
+
+Jo asked Alice to track events, ping when something matters, and passively look
+at the calendar or current activity. The observation surface is intentionally
+small: foreground process name, redacted window title, idle seconds, and the
+local `.ics` calendar. No keystrokes, screenshots, clipboard, browser history,
+or file contents. The title never becomes a stored event; it is shown in the
+Ambient page and available to the explicit `activity.snapshot` chat tool after
+redaction.
+
+### Rules, not model spam
+
+Every foreground sample is not sent to a model. Local deterministic rules turn
+only a few patterns into ordinary suggestions: a calendar event within 30
+minutes, a focus block over 90 minutes, high context switching, or late-night
+activity. The normal suggestion queue then applies quiet hours, the toast cap,
+priority filtering, and digest fallback. This keeps cost and notification
+fatigue bounded.
+
+### Toast handoff
+
+`win11toast` waits until the toast is clicked, dismissed, or fails, which is much
+longer than a 5-second timeout. Waiting caused the old notifier to mark every
+toast as failed and enter a 10-minute cooldown even when Windows displayed it.
+The notifier now hands the toast to a daemon thread and returns after a short
+WinRT error window. A live thread is normal; only an immediate exception puts the
+notifier on cooldown. The suggestion is marked shown when the handoff succeeds.
+
+### Runtime
+
+Tracking and pings require `alice run`, not just the GUI. The packaged logon
+Scheduled Task is the durable path; start it now with Task Scheduler, and it
+will restart at logon. Ambient state that matters for dedupe lives in
+`ambient_alerts`; focus/switch counters are in-memory and reset with the process,
+which is acceptable for short-horizon feedback.
+

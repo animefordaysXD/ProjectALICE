@@ -62,6 +62,11 @@ def test_dashboard_snapshot(conn) -> None:
         "VALUES (?, 'time.now', '{}', 1, 'Local: 12:00', 5)",
         (utc_now(),),
     )
+    connection.execute(
+        "INSERT INTO ambient_alerts (created, kind, alert_key, title, body) "
+        "VALUES (?, 'calendar', 'review', 'In 10 minutes: review', 'In 10 minutes: review')",
+        (utc_now(),),
+    )
     connection.commit()
     today = datetime.now().astimezone().date().isoformat()
     digest = settings.data_dir / "digests" / f"{today}.md"
@@ -70,7 +75,7 @@ def test_dashboard_snapshot(conn) -> None:
 
     dashboard = load_dashboard(settings, connection)
 
-    assert dashboard.schema_version == 12
+    assert dashboard.schema_version == 13
     assert dashboard.status_counts["escalated"] == 1
     assert dashboard.new_above_gate == 0
     assert dashboard.queued_suggestions == 1
@@ -93,6 +98,8 @@ def test_dashboard_snapshot(conn) -> None:
     assert dashboard.plugins == ()
     assert dashboard.growth_memories == ()
     assert dashboard.growth_stats["sessions"] == 0
+    assert dashboard.ambient_alerts[0].kind == "calendar"
+    assert dashboard.activity is None or "category" in dashboard.activity
 
 
 def test_gui_module_imports() -> None:

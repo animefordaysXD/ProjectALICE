@@ -19,8 +19,10 @@ def test_toast_success(monkeypatch) -> None:
     assert WindowsToastNotifier(timeout=0.5).notify("Alice", "test") is True
 
 
-def test_toast_timeout_does_not_block(monkeypatch) -> None:
+def test_toast_handoff_does_not_block(monkeypatch) -> None:
     fake = types.ModuleType("win11toast")
+    # A real toast stays alive until Windows dismisses it. That is normal, not
+    # a failure, so the handoff returns True without waiting for dismissal.
     fake.toast = lambda *_args, **_kwargs: time.sleep(1.0)
     monkeypatch.setitem(sys.modules, "win11toast", fake)
 
@@ -29,11 +31,21 @@ def test_toast_timeout_does_not_block(monkeypatch) -> None:
     delivered = notifier.notify("Alice", "test")
     elapsed = time.monotonic() - started
 
-    assert delivered is False
+    assert delivered is True
     assert elapsed < 0.5
 
-    # The failed notifier is put on cooldown, so a second attempt returns
-    # immediately instead of paying another 5-second timeout per suggestion.
+
+def test_toast_immediate_error_cools_down(monkeypatch) -> None:
+    fake = types.ModuleType("win11toast")
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("no notification service")
+
+    fake.toast = fail
+    monkeypatch.setitem(sys.modules, "win11toast", fake)
+
+    notifier = WindowsToastNotifier(timeout=0.5, cooldown=60)
+    assert notifier.notify("Alice", "test") is False
     started = time.monotonic()
     assert notifier.notify("Alice", "another") is False
     assert time.monotonic() - started < 0.02
