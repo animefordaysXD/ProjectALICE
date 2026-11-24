@@ -29,11 +29,14 @@ DEFAULT_EXCLUDED_APPS = (
 class MonitorConfig:
     enabled: bool = True
     capture_seconds: int = 20
-    analyze_seconds: int = 300
+    analyze_seconds: int = 120
     idle_seconds: int = 300
     max_ocr_chars: int = 2500
-    min_confidence: float = 0.5
-    max_suggestions_per_hour: int = 2
+    min_confidence: float = 0.35
+    max_suggestions_per_hour: int = 4
+    use_accessibility: bool = True
+    max_ui_chars: int = 1200
+    memory_seconds: int = 600
     exclude_apps: tuple[str, ...] = field(default_factory=lambda: DEFAULT_EXCLUDED_APPS)
     exclude_titles: tuple[str, ...] = (
         "password",
@@ -56,6 +59,9 @@ def parse_monitor(raw: Any) -> MonitorConfig:
             "max_ocr_chars",
             "min_confidence",
             "max_suggestions_per_hour",
+            "use_accessibility",
+            "max_ui_chars",
+            "memory_seconds",
             "exclude_apps",
             "exclude_titles",
             "excerpt_chars",
@@ -66,7 +72,7 @@ def parse_monitor(raw: Any) -> MonitorConfig:
     capture = get_integer(mapping, "capture_seconds", "monitor", default=20)
     if not 5 <= capture <= 600:
         raise ConfigError("monitor.capture_seconds must be between 5 and 600")
-    analyze = get_integer(mapping, "analyze_seconds", "monitor", default=300)
+    analyze = get_integer(mapping, "analyze_seconds", "monitor", default=120)
     if not 30 <= analyze <= 3600:
         raise ConfigError("monitor.analyze_seconds must be between 30 and 3600")
     idle = get_integer(mapping, "idle_seconds", "monitor", default=300)
@@ -75,16 +81,29 @@ def parse_monitor(raw: Any) -> MonitorConfig:
     ocr_chars = get_integer(mapping, "max_ocr_chars", "monitor", default=2500)
     if not 200 <= ocr_chars <= 8000:
         raise ConfigError("monitor.max_ocr_chars must be between 200 and 8000")
-    confidence = get_number(mapping, "min_confidence", "monitor", default=0.5)
+    confidence = get_number(mapping, "min_confidence", "monitor", default=0.35)
     if not 0.0 <= confidence <= 1.0:
         raise ConfigError("monitor.min_confidence must be between 0 and 1")
     per_hour = get_integer(
-        mapping, "max_suggestions_per_hour", "monitor", default=2
+        mapping, "max_suggestions_per_hour", "monitor", default=4
     )
-    if not 1 <= per_hour <= 6:
+    if not 1 <= per_hour <= 8:
         raise ConfigError(
-            "monitor.max_suggestions_per_hour must be between 1 and 6"
+            "monitor.max_suggestions_per_hour must be between 1 and 8"
         )
+    use_accessibility = get_boolean(
+        mapping, "use_accessibility", "monitor", default=True
+    )
+    max_ui_chars = get_integer(
+        mapping, "max_ui_chars", "monitor", default=1200
+    )
+    if not 200 <= max_ui_chars <= 5000:
+        raise ConfigError("monitor.max_ui_chars must be between 200 and 5000")
+    memory_seconds = get_integer(
+        mapping, "memory_seconds", "monitor", default=600
+    )
+    if not 60 <= memory_seconds <= 7200:
+        raise ConfigError("monitor.memory_seconds must be between 60 and 7200")
     exclude_apps = _string_tuple(
         mapping.get("exclude_apps", list(DEFAULT_EXCLUDED_APPS)),
         "monitor.exclude_apps",
@@ -107,6 +126,9 @@ def parse_monitor(raw: Any) -> MonitorConfig:
         max_ocr_chars=ocr_chars,
         min_confidence=confidence,
         max_suggestions_per_hour=per_hour,
+        use_accessibility=use_accessibility,
+        max_ui_chars=max_ui_chars,
+        memory_seconds=memory_seconds,
         exclude_apps=exclude_apps,
         exclude_titles=exclude_titles,
         excerpt_chars=excerpt_chars,

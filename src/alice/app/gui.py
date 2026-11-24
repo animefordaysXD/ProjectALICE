@@ -946,7 +946,9 @@ class AliceWindow:
         panes = ttk.PanedWindow(tab, orient="horizontal")
         panes.pack(fill="both", expand=True)
         memories = ttk.LabelFrame(panes, text="Learned dispositions", padding=6)
-        sessions = ttk.LabelFrame(panes, text="Ingested sessions", padding=6)
+        sessions = ttk.LabelFrame(
+            panes, text="Sessions & screen notes", padding=6
+        )
         panes.add(memories, weight=3)
         panes.add(sessions, weight=2)
         self.growth_tree = self._tree(

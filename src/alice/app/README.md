@@ -14,8 +14,9 @@ other module.
   pings, and ambient state.
 - `gui.py`: Tkinter dashboard with in-app pings, suggestion actions, chat,
   read-only file attachments, fix drafting, and typed `RUN` confirmation.
-- `activity.py`, `ambient.py`, `calendar.py`, `screen.py`, `monitor.py`:
-  passive local context and screen-following suggestions.
+- `activity.py`, `accessibility.py`, `ambient.py`, `calendar.py`, `screen.py`,
+  `monitor.py`: passive local context, bounded UI Automation + OCR, and
+  screen-following suggestions.
 - Future: a service host if per-user DPAPI and desktop observation stop being
   requirements.
 

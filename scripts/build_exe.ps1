@@ -26,6 +26,8 @@ try {
         "--collect-all", "model2vec",
         "--collect-all", "win11toast",
         "--collect-all", "winrt",
+        "--collect-all", "uiautomation",
+        "--collect-all", "comtypes",
         "--add-data", "src/alice/core/migrations;alice/core/migrations"
     )
 

@@ -117,7 +117,7 @@ def test_render_is_subordinate_and_weighted(conn) -> None:
     assert "history-of-clocks" not in text.lower()
     assert "history of timekeeping" in text
     assert "(0." in text
-    assert "Recent sessions (newest first):" in text
+    assert "Recent context (newest first):" in text
 
 
 def test_fallback_uses_titles_without_router(conn) -> None:
@@ -160,6 +160,45 @@ def test_ingest_directory_reads_summary_and_steps(conn, tmp_path: Path) -> None:
     assert growth.sessions()[0].steps == 1
     assert growth.sessions()[0].input_tokens == 10
     assert growth.memories()[0].key == "maps"
+
+
+def test_screen_observation_is_stored_and_weighted_slowly(conn) -> None:
+    growth = service(conn)
+    growth.ingest_observation(
+        summary="Jo is comparing two interface layouts.",
+        app="code.exe",
+        category="coding",
+        notes=[
+            {
+                "key": "interface-design",
+                "kind": "interest",
+                "text": "A growing interest in interface design.",
+                "confidence": 0.6,
+            }
+        ],
+    )
+    session = growth.sessions()[0]
+    assert session.status == "screen"
+    assert session.summary == "Jo is comparing two interface layouts."
+    memory = growth.memories()[0]
+    assert memory.key == "interface-design"
+    assert memory.weight < 0.1
+
+
+def test_merge_notes_from_screen_reinforces(conn) -> None:
+    growth = service(conn)
+    note = {
+        "key": "systems-design",
+        "kind": "interest",
+        "text": "A growing interest in systems design.",
+        "confidence": 0.5,
+    }
+    growth.merge_notes([note], source="screen:1", alpha=0.1)
+    first = growth.memories()[0].weight
+    growth.merge_notes([note], source="screen:2", alpha=0.1)
+    second = growth.memories()[0].weight
+    assert second > first
+    assert growth.memories()[0].evidence_count == 2
 
 
 def test_parse_growth_rejects_bad_values() -> None:

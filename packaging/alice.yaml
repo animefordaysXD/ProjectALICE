@@ -117,11 +117,14 @@ monitor:
   # only a redacted text excerpt is sent to the configured model.
   enabled: true
   capture_seconds: 20
-  analyze_seconds: 300
+  analyze_seconds: 120
   idle_seconds: 300
   max_ocr_chars: 2500
-  min_confidence: 0.5
-  max_suggestions_per_hour: 2
+  min_confidence: 0.35
+  max_suggestions_per_hour: 4
+  use_accessibility: true
+  max_ui_chars: 1200
+  memory_seconds: 600
   exclude_apps: ['keepass.exe', 'keepassxc.exe', '1password.exe', 'bitwarden.exe', 'lastpass.exe', 'dashlane.exe']
   exclude_titles: ['password', 'incognito', 'private browsing', 'inprivate']
   excerpt_chars: 300

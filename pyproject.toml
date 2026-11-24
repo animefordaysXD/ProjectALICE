@@ -15,6 +15,7 @@ dependencies = [
     "PyYAML>=6.0",
     "sqlite-vec>=0.1.9",
     "win11toast>=0.36",
+    "uiautomation>=2.0.29",
 ]
 
 [project.optional-dependencies]

@@ -284,6 +284,7 @@ def _notification_title(category: str | None) -> str:
         "security": "Security",
         "maintenance": "Maintenance",
         "workflow": "Workflow",
+        "question": "Question",
         "data": "Data",
     }.get((category or "").casefold(), "Suggestion")
 

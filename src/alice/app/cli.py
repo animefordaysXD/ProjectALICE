@@ -513,8 +513,15 @@ def monitor_command(ctx: click.Context, capture: bool) -> None:
         else:
             click.echo("no monitor state yet; run `alice run` first")
         return
+    from .accessibility import capture_accessibility
     from .screen import capture_screen_text
 
+    ui = capture_accessibility()
+    if ui is not None:
+        click.echo(_line("ui", f"{ui.node_count} nodes, {len(ui.text)} chars"))
+        click.echo(ui.text[:1200])
+    else:
+        click.echo(_line("ui", "unavailable"))
     screen = capture_screen_text()
     if screen is None:
         raise click.ClickException(
@@ -1106,7 +1113,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     sensors, gate = ingestion.sensors, ingestion.gate
     memory = build_memory(config, conn)
     queue = build_queue(conn)
-    ambient = build_ambient(config, conn, queue)
+    ambient = None if dry_run else build_ambient(config, conn, queue)
     ensure_calendar_file(config.tools.calendar_file)
     try:
         router = build_models(config, conn, dry_run=dry_run)
@@ -1114,7 +1121,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     except (ProviderNotConfigured, RouterError) as exc:
         conn.close()
         raise click.ClickException(str(exc)) from exc
-    monitor = build_monitor(config, conn, router, queue)
+    monitor = None if dry_run else build_monitor(config, conn, router, queue)
     reasoning = build_reasoning(config, conn, router, memory, queue)
     consolidation = build_consolidation(config, conn, router, memory)
     notifier = build_notifications(config, dry_run=dry_run)
@@ -1154,7 +1161,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                 click.echo(_line("indexed", f"{indexed} memories"))
 
             try:
-                ambient_ids = ambient.tick()
+                ambient_ids = ambient.tick() if ambient is not None else ()
             except Exception:
                 logger.exception("ambient monitor failed")
                 ambient_ids = ()
@@ -1170,7 +1177,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                     )
 
             try:
-                screen_ids = monitor.tick()
+                screen_ids = monitor.tick() if monitor is not None else ()
             except Exception:
                 logger.exception("screen monitor failed")
                 screen_ids = ()

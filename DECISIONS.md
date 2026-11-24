@@ -1233,10 +1233,62 @@ the Ambient page.
 ### Rate and noise
 
 Capture is cheap and local; analysis is the expensive part. The default is one
-OCR sample every 20 seconds, one model analysis every 5 minutes, and only when
-the normalized screen text changed. The model may return zero or one suggestion,
-with a confidence floor and a suggestion cluster so repeats merge. The prompt is
-explicit that screen text is untrusted and that medical/legal/financial advice
-is out of scope. Suggestions use the ordinary queue and therefore the ordinary
-ping path.
+OCR sample every 20 seconds, one model analysis every 2 minutes, and only when
+the normalized screen text changed. The model may return up to two suggestions
+or one question, with a confidence floor and a suggestion cluster so repeats
+merge. The prompt is explicit that screen text is untrusted and that
+medical/legal/financial advice is out of scope. Suggestions use the ordinary
+queue and therefore the ordinary ping path.
+
+## 2026-11-25 - Everywhere-inspired screen context
+
+Jo pointed at [Sylinko/Everywhere](https://github.com/Sylinko/Everywhere), an
+AGPL-3.0 on-screen assistant, and asked for stronger screen reading, a more
+proactive/inquisitive Alice, and screen observations that affect personality
+and memory. We used the repository as an architectural reference only; no code
+or text was copied.
+
+### Adopted ideas
+
+- **Accessibility plus vision.** Everywhere combines platform accessibility
+  data with screen multimodality. Alice now reads a bounded Windows UI
+  Automation tree (names, values, focused control, document text) alongside
+  local OCR. Chrome exposes little UIA content; native apps expose more; OCR
+  covers the rest.
+- **Bounded observation.** Everywhere uses weighted traversal and snapshot
+  limits. Alice uses node/depth/character caps, a global UIA search timeout, and
+  `_scrub_screen` before the model sees anything.
+- **Scenario strategy.** Everywhere's strategy engine matches context before
+  suggesting. Alice uses a small local classifier: error, coding, writing,
+  reading, meeting, spreadsheet, media, game. The monitor prompt includes the
+  scenario so suggestions are concrete.
+- **Proactive, not passive.** The monitor prompt now defaults to speaking when
+  there is a plausible opportunity, allows up to two suggestions or one short
+  question, and runs every 2 minutes instead of 5. The hourly cap and
+  changed-text check remain the guardrails.
+
+### Screen observations as growth memory
+
+Screen context can now affect Alice's slow growth memory:
+
+- the model may return 0-2 `growth_notes` about Alice's own curiosity or working
+  style;
+- `GrowthService.ingest_observation` stores a short observation in
+  `growth_sessions` with status `screen`, and merges notes at half the normal
+  influence rate;
+- screen note confidence is capped at 0.5, so a single glance produces a very
+  small weight;
+- the growth block's `Recent context` includes recent screen observations, so
+  chat can recall them.
+
+This is deliberately weaker evidence than an exploration session. A screen
+glance is not a considered interest; repetition is required before it changes
+behavior.
+
+### Why not copy Everywhere
+
+Everywhere is C#/.NET and AGPL-3.0. Alice is a Python modular monolith. Copying
+would blow up the dependency surface and licensing story. We adopted the
+architecture patterns and wrote a small, auditable implementation with existing
+Alice primitives (SQLite, `reason` tier, suggestion queue, in-app pings).
 

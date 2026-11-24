@@ -128,9 +128,10 @@ src/alice/
     dashboard.py           read-only data for the GUI
     gui.py                 Tkinter desktop dashboard
     activity.py            foreground app, title, idle seconds
+    accessibility.py       bounded Windows UI Automation context
     ambient.py             calendar/focus/context-switch rules
     calendar.py            local .ics parsing
-    monitor.py             screen OCR analysis and suggestions
+    monitor.py             screen UI+OCR analysis and suggestions
     screen.py              in-memory Windows OCR capture
     system_info.py         CPU/RAM/disk snapshot
     tools.py               read-only tool registry

@@ -72,6 +72,9 @@ def test_repo_config_loads() -> None:
     assert config.ambient.calendar_lookahead_minutes == 30
     assert config.monitor.enabled is True
     assert config.monitor.capture_seconds == 20
+    assert config.monitor.analyze_seconds == 120
+    assert config.monitor.use_accessibility is True
+    assert config.monitor.memory_seconds == 600
     assert "keepassxc.exe" in config.monitor.exclude_apps
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120

@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from alice.app.accessibility import AccessibilityContext
 from alice.app.activity import Activity
-from alice.app.monitor import ScreenMonitor, _scrub_screen
+from alice.app.monitor import ScreenMonitor, _scrub_screen, detect_scenario
 from alice.app.monitor_config import MonitorConfig
 from alice.app.screen import ScreenText
 from alice.contracts.models import Completion
@@ -69,7 +70,16 @@ def capture(text: str = "Project notes\nRemember to save the file.") -> ScreenTe
     return ScreenText(text=text, width=100, height=100, digest="x")
 
 
-def monitor(conn, router=None, *, capture_fn=None, activity_fn=None, **kwargs):
+def monitor(
+    conn,
+    router=None,
+    *,
+    capture_fn=None,
+    activity_fn=None,
+    accessibility_fn=None,
+    growth=None,
+    **kwargs,
+):
     config = MonitorConfig(
         capture_seconds=0,
         analyze_seconds=0,
@@ -91,6 +101,8 @@ def monitor(conn, router=None, *, capture_fn=None, activity_fn=None, **kwargs):
         Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent,
         capture=capture_fn or (lambda: capture()),
         activity=activity_fn or (lambda: activity()),
+        accessibility=accessibility_fn or (lambda: None),
+        growth=growth,
     )
 
 
@@ -184,3 +196,94 @@ def test_monitor_state_is_local(tmp_path: Path, conn) -> None:
     assert state["status"] == "analyzed"
     assert state["app"] == "code.exe"
     assert "excerpt" in state
+
+
+def test_question_becomes_in_app_ping(conn) -> None:
+    router = StubRouter({"suggestions": [], "question": "Is this a review or a rewrite?"})
+    service = monitor(conn, router)
+    ids = service.tick(datetime(2026, 11, 24, 14, 0).astimezone())
+    assert len(ids) == 1
+    pending = SuggestionQueue(conn).pending()
+    assert pending[0].category == "question"
+    assert pending[0].text.endswith("?")
+
+
+class StubGrowth:
+    def __init__(self) -> None:
+        self.observation = None
+        self.rendered = 0
+
+    def render(self) -> str:
+        self.rendered += 1
+        return "[GROWTH MEMORY]\n- (0.20, interest) A growing interest in interfaces."
+
+    def ingest_observation(self, **kwargs):
+        self.observation = kwargs
+        return 1
+
+
+def test_screen_observation_feeds_growth_memory(conn) -> None:
+    router = StubRouter(
+        {
+            "suggestions": [],
+            "observation": "Jo is comparing two interface layouts.",
+            "growth_notes": [
+                {
+                    "key": "interface-design",
+                    "kind": "interest",
+                    "text": "A growing interest in interface design trade-offs.",
+                    "confidence": 0.45,
+                }
+            ],
+        }
+    )
+    growth = StubGrowth()
+    service = monitor(conn, router, growth=growth)
+    service.tick(datetime(2026, 11, 24, 14, 0).astimezone())
+    assert growth.rendered == 1
+    assert growth.observation is not None
+    assert growth.observation["summary"] == "Jo is comparing two interface layouts."
+    assert growth.observation["notes"][0]["key"] == "interface-design"
+
+
+class CapturingRouter(StubRouter):
+    def __init__(self):
+        super().__init__({"suggestions": [], "question": "What is the goal here?"})
+        self.messages = []
+
+    def complete(self, tier, messages, max_tokens, *, purpose=None, cache_prefix_len=None):
+        self.messages = list(messages)
+        return super().complete(
+            tier,
+            messages,
+            max_tokens,
+            purpose=purpose,
+            cache_prefix_len=cache_prefix_len,
+        )
+
+
+def test_accessibility_context_is_added_to_the_prompt(conn) -> None:
+    router = CapturingRouter()
+    service = monitor(
+        conn,
+        router,
+        accessibility_fn=lambda: AccessibilityContext(
+            text='Document "Quarterly report"\nEdit "Budget" value="1200"',
+            focused="Edit Budget",
+            node_count=2,
+            process_id=1,
+        ),
+    )
+    service.tick(datetime(2026, 11, 24, 14, 0).astimezone())
+    prompt = "\n".join(message.content for message in router.messages)
+    assert "UI elements (bounded)" in prompt
+    assert "Quarterly report" in prompt
+    assert "Likely scenario" in prompt
+
+
+def test_scenario_hints() -> None:
+    assert detect_scenario("other", "Traceback: ValueError: bad input") == "error"
+    assert detect_scenario("coding", "def main(): pass") == "coding"
+    assert detect_scenario("writing", "A long document body") == "writing"
+    assert detect_scenario("browsing", "word " * 400) == "reading"
+    assert detect_scenario("calendar", "inbox") == "general"

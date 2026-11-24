@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, passive local calendar/activity monitoring, local screen OCR with suggestion pings, and an in-app ping inbox. 385 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, passive local calendar/activity monitoring, local screen OCR with suggestion pings, and an in-app ping inbox. 391 tests pass.
 
 ---
 
@@ -655,24 +655,54 @@ Foreground activity is Windows-only. Calendar monitoring needs a populated
 
 ## Screen following
 
-`alice run` can also follow the primary monitor with local Windows OCR. This is
-opt-in through `monitor.enabled` and is deliberately narrow:
+Screen following is informed by the architecture of
+[Sylinko/Everywhere](https://github.com/Sylinko/Everywhere): combine structured
+accessibility context with visual/OCR context, bound the observation, and use
+context-specific strategies rather than generic chatter. No Everywhere code was
+copied; this is an independent Python implementation of the same ideas.
+
+`alice run` follows the primary monitor using both Windows UI Automation and
+local Windows OCR:
 
 1. Capture the primary screen into memory. No screenshot is written to disk.
-2. Run Windows OCR locally.
+2. Read a bounded foreground UI Automation tree (control names, values, focused
+   control, document text) plus local OCR text.
 3. Drop obvious credential lines and apply the normal redactor.
-4. Keep only a bounded excerpt.
-5. Every `monitor.analyze_seconds`, if the screen text changed, ask the `reason`
-   tier for zero or one practical suggestion.
-6. Put accepted suggestions through the normal queue, which creates an in-app
-   ping.
+4. Keep bounded UI and OCR excerpts.
+5. Add a local scenario hint (error, coding, writing, reading, meeting,
+   spreadsheet, media, game).
+6. Every `monitor.analyze_seconds` (default 2 minutes), if the context changed,
+   ask the `reason` tier for up to two practical suggestions, one short
+   question, and 0-2 growth notes.
+7. Put accepted suggestions/questions through the normal queue, which creates an
+   in-app ping.
+8. Every `monitor.memory_seconds` (default 10 minutes), store a short screen
+   observation and fold its growth notes into personality memory.
 
-The model receives the redacted text excerpt, foreground app/category, window
-title, next calendar event, and growth memory. It does not receive image files.
-Password managers and titles containing password/incognito/private-browsing
-hints are skipped. Window titles and screen text can still contain personal
-names or content the pattern redactor does not recognize; do not enable screen
-following on a shared or untrusted display.
+The model receives the redacted UI/OCR excerpt, foreground app/category, window
+title, likely scenario, next calendar event, and growth memory. It does not
+receive image files. Password managers and titles containing
+password/incognito/private-browsing hints are skipped. Window titles and screen
+text can still contain personal names or content the pattern redactor does not
+recognize; do not enable screen following on a shared or untrusted display.
+
+The prompt is intentionally more proactive than the first version: Alice should
+offer a concrete suggestion or a short useful question when a plausible
+opportunity appears, not wait to be asked. The rate cap, changed-text check, and
+confidence floor keep that from becoming constant noise.
+
+### Reference: Everywhere
+
+The reference repository's useful ideas for Alice are:
+
+- structured UI/accessibility context alongside screen pixels;
+- bounded, weighted observation rather than dumping a whole window;
+- scenario/strategy hints tied to the current app and content;
+- proactive assistance without stealing focus.
+
+Alice keeps those ideas but uses a much smaller Python surface: Windows OCR,
+`uiautomation`, a bounded context builder, a local scenario classifier, and the
+existing suggestion/ping pipeline.
 
 `monitor_state.json` under the data directory stores the latest status and a
 short local excerpt for the Ambient page. Screenshots are never stored.
@@ -681,11 +711,14 @@ short local excerpt for the Ambient page. Screenshots are never stored.
 monitor:
   enabled: true
   capture_seconds: 20
-  analyze_seconds: 300
+  analyze_seconds: 120
   idle_seconds: 300
   max_ocr_chars: 2500
-  min_confidence: 0.5
-  max_suggestions_per_hour: 2
+  min_confidence: 0.35
+  max_suggestions_per_hour: 4
+  use_accessibility: true
+  max_ui_chars: 1200
+  memory_seconds: 600
   exclude_apps: ['keepass.exe', 'keepassxc.exe', '1password.exe', 'bitwarden.exe', 'lastpass.exe', 'dashlane.exe']
   exclude_titles: ['password', 'incognito', 'private browsing', 'inprivate']
   excerpt_chars: 300
@@ -736,12 +769,21 @@ Alice has three memory layers with different authority:
 3. **Growth memory** — slow-weighted impressions Alice derives from her own
    sessions. It is subordinate to the first two and to Jo's current request.
 
-After an exploration session, the final summary and page list are sent once to
-the `reason` tier. It extracts up to `growth.max_notes_per_session` notes about
-Alice's own interests, habits, and working style. Each note has a stable key, a
-kind (`interest`, `habit`, `trait`, `value`, `topic`), a sentence, and a
-confidence. No page content becomes a rule, and secrets/personal data are
-redacted before storage.
+Growth notes come from two places:
+
+- an exploration session's final summary and page list, sent to the `reason`
+  tier;
+- screen-following analyses, which may return 0-2 notes about Alice's own
+  curiosity, habits, or working style.
+
+Each note has a stable key, a kind (`interest`, `habit`, `trait`, `value`,
+`topic`), a sentence, and a confidence. Screen notes are damped: confidence is
+capped and the weight update uses half the normal rate. No page/screen content
+becomes a rule, and secrets/personal data are redacted before storage.
+
+A short screen observation is also stored every `monitor.memory_seconds` and
+appears under `Recent context` in the growth block. That lets Alice remember
+what she glanced at without retaining raw screenshots or entire screens.
 
 Weights move slowly:
 
@@ -1210,7 +1252,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-385 tests cover:
+391 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - read-only tools, tool-call auditing, calendar creation, domain allowlisting;
@@ -1218,8 +1260,10 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - growth extraction, slow weight updates, evidence counts, decay, rendering,
   session ingestion, and chat prompt inclusion;
 - calendar parsing, ambient dedupe/rate limits, focus and context-switch
-  feedback, idle suppression, screen OCR gating, credential-line scrubbing,
-  in-app notification creation/read state, and monitor suggestion validation;
+  feedback, idle suppression, screen OCR/UIA gating, scenario hints,
+  credential-line scrubbing, accessibility context, scenario hints, growth
+  notes from screen observations, question pings, in-app notification
+  creation/read state, and monitor validation;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1389,9 +1433,10 @@ milestone in the original spec.
 - Ambient suggestions are deterministic rules. Screen-following suggestions are
   model-generated from OCR text and can be wrong or obvious; use the Pings page
   and dismiss what is not useful.
-- Screen OCR is Windows-only and captures the primary monitor. It is not a
-  vision model: it sees text, not layout or images. Some apps render text in
-  ways Windows OCR cannot read.
+- Screen reading is Windows-only and captures the primary monitor. It combines
+  UI Automation and OCR, but it is not a vision model: it sees text/control
+  structure, not layout or images. Some apps expose little accessibility data
+  and some render text in ways Windows OCR cannot read.
 - Redaction is pattern-based. Screen text can contain names or secrets the
   redactor does not recognize. Enable screen following only if you accept that
   the redacted excerpt is sent to your configured model.
