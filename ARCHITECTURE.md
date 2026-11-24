@@ -111,11 +111,12 @@ src/alice/
     chat.py                read-only chat over ledger, memory, and suggestions
   outputs/                 how Alice tells Jo
     __init__.py
-    config.py              notify mode, quiet hours, toast limits
+    config.py              notify mode, quiet hours
     queue.py               suggestion queue and throttling
-    digest.py              daily markdown and summary toast
+    inbox.py               in-app notification read state
+    digest.py              daily markdown
     report.py              weekly usage/activity markdown
-    notify.py              Windows toast adapter
+    notify.py              legacy toast adapter, disabled by default
   plugins/                 optional extensions
     __init__.py
     registry.py            explicit built-in registry, no disk loading
@@ -126,6 +127,13 @@ src/alice/
     bootstrap.py           builds and wires services
     dashboard.py           read-only data for the GUI
     gui.py                 Tkinter desktop dashboard
+    activity.py            foreground app, title, idle seconds
+    ambient.py             calendar/focus/context-switch rules
+    calendar.py            local .ics parsing
+    monitor.py             screen OCR analysis and suggestions
+    screen.py              in-memory Windows OCR capture
+    system_info.py         CPU/RAM/disk snapshot
+    tools.py               read-only tool registry
 ```
 
 ## What goes in each module
@@ -223,12 +231,13 @@ it receives a `ModelRouter` protocol.
 
 Everything Jo sees.
 
-- Suggestion queue, quiet hours, hourly toast cap, priority threshold.
-- Daily digest markdown plus one summary toast.
-- Windows toast adapter (`win11toast`, lazy).
+- Suggestion queue, quiet hours, priority threshold, and cluster merges.
+- In-app notification inbox with read state for the GUI bell, banner, and Pings
+  page. Windows toasts are disabled.
+- Daily digest markdown, no summary toast.
 - Budget alerts supplied by an injected `BudgetSnapshot`; no import of `models`.
 
-Owns table: `suggestions`.
+Owns tables: `suggestions`, `notifications`.
 Config section: `notify`.
 Depends on: `contracts`, `core`.
 Must not: decide that something is important; it only delivers.
@@ -283,12 +292,17 @@ SQL.
 | `tasks` | memory | memory | `MemoryStore` |
 | `summaries` | memory | memory (requested by brain) | `MemoryStore` |
 | `memory_embeddings` | memory | memory | memory |
+| `growth_memories` | brain | growth service | GUI/chat prompt |
+| `growth_sessions` | brain | growth service | GUI |
 | `triage_batches` | brain | brain | brain |
 | `consolidation_runs` | brain | brain | brain/status |
 | `chat_messages` | brain | brain chat | GUI/chat |
 | `actions` | core | core action runner | GUI/status |
+| `tool_calls` | app | read-only tools | GUI audit |
+| `ambient_alerts` | app | ambient monitor | GUI |
 | `backup_runs` | core | core backup service | status/backup |
 | `suggestions` | outputs | outputs; user status/cluster merges | outputs/GUI |
+| `notifications` | outputs | queue; GUI read state | GUI |
 | `budget_alerts` | models | models | models/status/digest |
 | `usage` | models | models | budget/status |
 
@@ -334,6 +348,10 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 | `notify` | outputs | done |
 | `memory` | memory | done |
 | `plugins` | plugins | done |
+| `tools` | app | done |
+| `growth` | brain | done |
+| `ambient` | app | done |
+| `monitor` | app | done |
 
 ## Plugins: policy
 
