@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..brain.config import BrainConfig, Triage, parse_brain
+from ..brain.growth import GrowthConfig, parse_growth
 from ..core.config import (
     ConfigError,
     CoreConfig,
@@ -49,6 +50,7 @@ TOP_LEVEL = {
     "files",
     "actions",
     "tools",
+    "growth",
 }
 
 
@@ -64,6 +66,7 @@ class AppSettings:
     outputs: OutputsConfig
     plugins: PluginsConfig
     tools: ToolsConfig
+    growth: GrowthConfig
 
     @property
     def data_dir(self) -> Path:
@@ -159,6 +162,7 @@ def load_settings(
         outputs=parse_outputs(raw.get("notify")),
         plugins=parse_plugins(raw.get("plugins")),
         tools=parse_tools(raw.get("tools"), data_path),
+        growth=parse_growth(raw.get("growth")),
     )
 
 

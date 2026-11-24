@@ -140,6 +140,23 @@ def test_chat_includes_attached_files(conn) -> None:
     assert "hello world" in joined
 
 
+def test_chat_includes_weighted_growth_memory(conn) -> None:
+    router = StubRouter("Noted.")
+    service(
+        conn,
+        router,
+        growth_memory=lambda: (
+            "[GROWTH MEMORY]\n- (0.42, interest) A growing interest in maps."
+        ),
+    ).ask("What do you find interesting?")
+
+    _tier, messages = router.calls[0]
+    joined = "\n".join(message.content for message in messages)
+    assert "<growth_memory>" in joined
+    assert "A growing interest in maps." in joined
+    assert "0.42" in joined
+
+
 def test_chat_can_use_read_only_tools(conn) -> None:
     router = ToolRouter()
     tools = StubTools()

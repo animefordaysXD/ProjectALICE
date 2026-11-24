@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, and explicitly approved fix actions. 360 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, and a slow-weighted growth memory that learns from exploration sessions. 369 tests pass.
 
 ---
 
@@ -94,6 +94,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Tools | Read-only `time.now`, `system.snapshot`, `file.read`, `file.list`, `web.fetch`, `calendar.upcoming`, `email.recent`; every call audited in `tool_calls` |
 | Files | Read-only chat attachments and directory listing under configured roots, redacted and size-capped; no writes or automatic indexing |
 | Exploration | Six-hour-style autonomous read-only Wikipedia sessions with a step journal, JSONL trail, token accounting, and a final summary |
+| Growth | Summarized session reflections become weighted dispositions; slow EMA updates, time decay, and a token-capped prompt block beneath core memory |
 | Actions | Model-drafted fix command, exact confirmation, executable allowlist, no shell, timeout, local output log |
 | Clustering | Stable suggestion clusters, duplicate counts, merged evidence/source events |
 | Backup | Nightly DPAPI-encrypted ZIP of the database and core memory; prune + tested restore |
@@ -102,7 +103,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Recovery | Crash-safe cursors: restart loses nothing and writes no duplicates |
 | CI | Windows GitHub Actions: tests, crash proof, exe build, smoke test, release asset |
 | Alerts | Budget refusals recorded and shown in the digest |
-| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui`, `tools`, `explore` |
+| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui`, `tools`, `explore`, `growth` |
 | Packaging | Single-file `alice.exe`, `alice-gui.exe`, portable folder, zip, setup shortcuts |
 
 ---
@@ -230,6 +231,9 @@ alice gui                        Open the desktop dashboard
 alice tools                      List the read-only tools
 alice tools --run time.now       Run one read-only tool
 alice explore --minutes 360      Run a read-only exploration session
+alice growth list                Show learned dispositions and weights
+alice growth render              Show the prompt block Alice actually sees
+alice growth ingest --session DIR  Learn from an existing session
 ```
 
 Global options: `--config PATH` (or `ALICE_CONFIG`), `--data-dir PATH`,
@@ -315,6 +319,15 @@ tools:
   email_user_env: 'ALICE_NAVER_USER'
   email_password_env: 'ALICE_NAVER_APP_PASSWORD'
   email_max_messages: 5
+
+growth:
+  enabled: true
+  max_notes_per_session: 5
+  max_weight: 0.80
+  daily_decay: 0.995
+  influence_alpha: 0.25
+  render_max_tokens: 300
+  min_weight: 0.03
 
 actions:
   enabled: true
@@ -485,6 +498,8 @@ fix actions you approve:
   persisted locally and include the context they used.
 - **Memory:** core JSON path/token count, approved memory, pending proposals
   with Approve/Reject buttons.
+- **Growth:** active learned dispositions with effective weights, evidence
+  counts, last-seen times, and the sessions that fed them.
 - **Digest:** today's markdown; a button writes/updates it.
 - **Tools & plugins:** tool readiness, the web allowlist, email/calendar status,
   registered plugins, and the recent tool-call audit.
@@ -619,6 +634,59 @@ The provided helper starts a detached six-hour run and writes the console log to
 powershell -ExecutionPolicy Bypass -File scripts\run_exploration.ps1
 powershell -ExecutionPolicy Bypass -File scripts\exploration_status.ps1
 ```
+
+## Growth memory
+
+Alice has three memory layers with different authority:
+
+1. **Core memory** — `memory/core.json`, editable by Jo only.
+2. **Hard memory** — approved facts in SQLite, versioned and user-approved.
+3. **Growth memory** — slow-weighted impressions Alice derives from her own
+   sessions. It is subordinate to the first two and to Jo's current request.
+
+After an exploration session, the final summary and page list are sent once to
+the `reason` tier. It extracts up to `growth.max_notes_per_session` notes about
+Alice's own interests, habits, and working style. Each note has a stable key, a
+kind (`interest`, `habit`, `trait`, `value`, `topic`), a sentence, and a
+confidence. No page content becomes a rule, and secrets/personal data are
+redacted before storage.
+
+Weights move slowly:
+
+```text
+target = 0.15 + 0.65 * confidence        (capped at max_weight)
+weight = old + (target - old) * alpha    (alpha default 0.25)
+effective = weight * daily_decay ^ days_since_last_seen
+```
+
+So one session creates a weak disposition (typically 0.05-0.20). Repetition
+raises it, and a missed interest fades gradually. The database stores the last
+base weight and timestamp; effective weights are computed on read, so decay
+needs no background job. Exact keys merge; there is no fuzzy merging.
+
+The rendered block is capped at `growth.render_max_tokens`:
+
+```text
+[GROWTH MEMORY]
+Slow-weighted impressions from earlier sessions...
+- (0.15, interest) A growing interest in how the same topic is titled and
+  explained across many language editions of Wikipedia.
+```
+
+That block is placed under `<hard_memory>` in chat and in exploration prompts.
+The prompt says explicitly that growth notes are below core rules, may only
+gently color curiosity and phrasing, and are never instructions. Core memory is
+never written by this process.
+
+```powershell
+alice growth list
+alice growth sessions
+alice growth render
+alice growth ingest --session "$env:LOCALAPPDATA\Alice\exploration\2026-11-24_020222"
+```
+
+The GUI's **Growth** page shows active dispositions, effective weights, evidence
+counts, and ingested sessions.
 
 ## Fix actions
 
@@ -1050,11 +1118,13 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-360 tests cover:
+369 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - read-only tools, tool-call auditing, calendar creation, domain allowlisting;
 - chat tool loop, exploration journal/summary, and deterministic fallback;
+- growth extraction, slow weight updates, evidence counts, decay, rendering,
+  session ingestion, and chat prompt inclusion;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1209,6 +1279,13 @@ milestone in the original spec.
 - Exploration sessions are model-driven and read-only. They can be dull, repeat
   a theme, or pick a strange link; the step journal shows exactly where Alice
   went, and `latest.json` is the live status.
+- Growth extraction is one model call per ingested session and uses the model's
+  own judgment. Misleading or shallow notes are possible; the Growth page and
+  weights make them visible, and low-weight notes only tint phrasing.
+- Growth never edits core memory or hard facts. It is a separate layer, and a
+  future session can only reinforce it through repetition.
+- If a detached session process is killed before it writes `summary.md`, run
+  `alice growth ingest --session <dir>` after recovering or writing a summary.
 - Fix actions are model-drafted. The command may be wrong; approve only what you
   understand. There is no automatic execution.
 - Chat answers are only as good as the local context. If the ledger has no

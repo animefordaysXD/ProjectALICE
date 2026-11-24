@@ -24,6 +24,8 @@ EXPECTED_TABLES = {
     "consolidation_runs",
     "cursors",
     "events",
+    "growth_memories",
+    "growth_sessions",
     "hard_memory",
     "memory_embeddings",
     "proposals",
@@ -56,9 +58,9 @@ def insert_event(conn: sqlite3.Connection, text: str, *, content_hash: str = "ha
 def test_init_creates_every_table(db_path: Path) -> None:
     result = init_db(db_path)
 
-    assert result.version == 11
+    assert result.version == 12
     assert [migration.version for migration in result.applied] == [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
     ]
     assert db_path.is_file()
 
@@ -77,7 +79,7 @@ def test_init_is_idempotent(db_path: Path) -> None:
     result = init_db(db_path)
 
     assert result.applied == ()
-    assert result.version == 11
+    assert result.version == 12
 
 
 def test_database_uses_wal(db_path: Path) -> None:
@@ -138,7 +140,7 @@ def test_status_after_init(db_path: Path) -> None:
     state = database_status(db_path)
 
     assert state.initialized is True
-    assert state.version == 11
+    assert state.version == 12
     assert state.pending == ()
     assert set(state.tables) == EXPECTED_TABLES
 
@@ -161,7 +163,7 @@ def test_status_reports_pending_after_new_migration(db_path: Path, tmp_path: Pat
     state = database_status(db_path, migrations_dir=test_migrations)
 
     assert state.initialized is True
-    assert state.version == 11
+    assert state.version == 12
     assert state.pending == (next_version,)
 
 

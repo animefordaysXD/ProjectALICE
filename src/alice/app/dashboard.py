@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..brain.growth import GrowthMemoryRow, GrowthService, GrowthSessionRow
 from ..core.db import current_version, utc_now
 from ..core.tokens import estimate_tokens
 from ..memory.core_file import CoreMemory
@@ -155,6 +156,9 @@ class Dashboard:
     embedded_count: int
     summary_count: int
     exploration: Mapping[str, Any] | None
+    growth_memories: tuple[GrowthMemoryRow, ...]
+    growth_sessions: tuple[GrowthSessionRow, ...]
+    growth_stats: Mapping[str, Any]
 
 
 def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard:
@@ -377,6 +381,14 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
     tools = _tools(settings, conn)
     hardware = system_snapshot()
     exploration = _exploration(settings.data_dir)
+    growth = GrowthService(conn, None, settings.growth)
+    growth_memories = growth.memories(limit=100) if _has_table(conn, "growth_memories") else ()
+    growth_sessions = growth.sessions(limit=10) if _has_table(conn, "growth_sessions") else ()
+    growth_stats = {
+        "memories": len(growth_memories),
+        "sessions": len(growth_sessions),
+        "top_weight": growth_memories[0].weight if growth_memories else 0.0,
+    }
 
     return Dashboard(
         config_path=settings.path,
@@ -418,6 +430,9 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         embedded_count=embedded_count,
         summary_count=summary_count,
         exploration=exploration,
+        growth_memories=growth_memories,
+        growth_sessions=growth_sessions,
+        growth_stats=growth_stats,
     )
 
 

@@ -64,6 +64,7 @@ class ChatService:
         data_dir: Path | str | None = None,
         max_tokens: int = MAX_CHAT_TOKENS,
         tools: ToolExecutor | None = None,
+        growth_memory: Callable[[], str] | None = None,
     ) -> None:
         self.conn = conn
         self.router = router
@@ -72,6 +73,7 @@ class ChatService:
         self.data_dir = Path(data_dir) if data_dir is not None else None
         self.max_tokens = max_tokens
         self.tools = tools
+        self.growth_memory = growth_memory
 
     def history(self, limit: int = 100) -> tuple[ChatMessage, ...]:
         return load_chat_history(self.conn, limit)
@@ -205,6 +207,13 @@ class ChatService:
         except Exception:
             logger.exception("chat could not read hard memory")
 
+        growth = ""
+        if self.growth_memory is not None:
+            try:
+                growth = self.growth_memory()
+            except Exception:
+                logger.exception("chat could not read growth memory")
+
         recalled = ()
         try:
             recalled = self.memory.recall(question, k=5).items
@@ -243,6 +252,7 @@ class ChatService:
 
         return {
             "hard": hard,
+            "growth": growth,
             "recalled": recalled,
             "suggestions": suggestions,
             "events": events,
@@ -255,6 +265,9 @@ class ChatService:
         hard = str(context.get("hard") or "").strip()
         if hard:
             parts.append(f"<hard_memory>\n{hard}\n</hard_memory>")
+        growth = str(context.get("growth") or "").strip()
+        if growth:
+            parts.append(f"<growth_memory>\n{growth}\n</growth_memory>")
         recalled = context.get("recalled") or ()
         if recalled:
             lines = ["<retrieved_memory>"]

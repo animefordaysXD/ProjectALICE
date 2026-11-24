@@ -110,6 +110,40 @@ def test_exploration_writes_journal_and_summary(tmp_path: Path) -> None:
     assert tools.calls == 3
 
 
+class StubGrowth:
+    def __init__(self) -> None:
+        self.ingested = None
+        self.rendered = 0
+
+    def render(self) -> str:
+        self.rendered += 1
+        return "[GROWTH MEMORY]\n- (0.20, interest) A growing interest in maps."
+
+    def ingest_session(self, **kwargs) -> int:
+        self.ingested = kwargs
+        return 7
+
+
+def test_exploration_feeds_growth_memory(tmp_path: Path) -> None:
+    clock = Clock()
+    growth = StubGrowth()
+    service = ExplorationService(StubRouter(), StubTools(), tmp_path, growth=growth)
+
+    result = service.run(
+        minutes=0.02,
+        step_seconds=1,
+        max_steps=1,
+        sleep=clock.sleep,
+        monotonic=clock,
+    )
+
+    assert result.steps
+    assert growth.rendered > 0
+    assert growth.ingested is not None
+    assert growth.ingested["steps"][0]["title"] == "Start Page"
+    assert "summary" in growth.ingested
+
+
 def test_exploration_survives_model_failure(tmp_path: Path) -> None:
     clock = Clock()
     service = ExplorationService(StubRouter(fail=True), StubTools(), tmp_path)

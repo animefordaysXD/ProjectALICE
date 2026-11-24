@@ -21,6 +21,7 @@ from typing import Callable, Mapping, Sequence
 
 from ..contracts.models import Message, ModelRouter
 from ..contracts.tools import ToolExecutor
+from .growth import GrowthService
 from .json_output import OutputFormatError, extract_object
 
 logger = logging.getLogger(__name__)
@@ -129,12 +130,14 @@ class ExplorationService:
         *,
         persona: str = "",
         sanitize: Callable[[str], str] | None = None,
+        growth: GrowthService | None = None,
     ) -> None:
         self.router = router
         self.tools = tools
         self.data_dir = Path(data_dir)
         self.persona = persona.strip()
         self.sanitize = sanitize
+        self.growth = growth
 
     def run(
         self,
@@ -272,6 +275,29 @@ class ExplorationService:
             stop_reason = stop_reason or "no pages visited"
         summary = self._summarize(steps, started_at, ended_at, stop_reason)
         summary_path.write_text(summary, encoding="utf-8")
+        if self.growth is not None:
+            try:
+                self.growth.ingest_session(
+                    summary=summary,
+                    steps=[
+                        {
+                            "title": step.title,
+                            "url": step.url,
+                            "note": step.note,
+                            "next": step.next_url,
+                        }
+                        for step in steps
+                    ],
+                    session_dir=session_dir,
+                    started=started_at.isoformat(timespec="seconds"),
+                    ended=ended_at.isoformat(timespec="seconds"),
+                    status="completed" if steps else "empty",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=cost_usd,
+                )
+            except Exception:
+                logger.exception("could not fold the session into growth memory")
         journal_path.write_text(
             journal_path.read_text(encoding="utf-8")
             + "\n---\n\n"
@@ -337,6 +363,9 @@ class ExplorationService:
             messages.append(
                 Message("system", f"<persona>\n{self.persona}\n</persona>")
             )
+        growth = self._growth_block()
+        if growth:
+            messages.append(Message("system", growth))
         messages.append(Message("user", prompt))
         try:
             completion = self.router.complete(
@@ -377,6 +406,15 @@ class ExplorationService:
         return _pick(links, str(page.get("url") or "")) or WIKI_RANDOM
 
     # -- output -----------------------------------------------------------
+
+    def _growth_block(self) -> str:
+        if self.growth is None:
+            return ""
+        try:
+            return self.growth.render()
+        except Exception:
+            logger.exception("could not read growth memory")
+            return ""
 
     def _clean(self, value: str) -> str:
         if self.sanitize is not None:
@@ -446,6 +484,9 @@ class ExplorationService:
             messages.append(
                 Message("system", f"<persona>\n{self.persona}\n</persona>")
             )
+        growth = self._growth_block()
+        if growth:
+            messages.append(Message("system", growth))
         messages.append(Message("user", prompt[:14_000]))
         try:
             completion = self.router.complete(

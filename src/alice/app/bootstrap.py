@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from ..brain.chat import ChatService
 from ..brain.consolidate import ConsolidationService
 from ..brain.fix import FixPlanner
+from ..brain.growth import GrowthService
 from ..brain.reason import ReasoningService
 from ..core.actions import ActionRunner
 from ..brain.triage import TriageService
@@ -219,6 +220,7 @@ def build_chat(
     memory: MemoryService,
     tools: ToolExecutor | None = None,
 ) -> ChatService:
+    growth = build_growth(settings, conn, router)
     return ChatService(
         conn,
         router=router,
@@ -226,6 +228,21 @@ def build_chat(
         hard_memory=memory.hard_block,
         data_dir=settings.data_dir,
         tools=tools if tools is not None else build_tools(settings, conn),
+        growth_memory=growth.render,
+    )
+
+
+def build_growth(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router | None = None,
+) -> GrowthService:
+    redactor = Redactor(settings.inputs.redaction.patterns)
+    return GrowthService(
+        conn,
+        router,
+        settings.growth,
+        sanitize=lambda text: redactor.redact(text).text,
     )
 
 

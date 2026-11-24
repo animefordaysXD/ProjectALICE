@@ -240,6 +240,7 @@ class AliceWindow:
         self._build_suggestions_tab()
         self._build_chat_tab()
         self._build_memory_tab()
+        self._build_growth_tab()
         self._build_digest_tab()
         self._build_tools_tab()
         self._build_system_tab()
@@ -314,6 +315,7 @@ class AliceWindow:
         for name, label in (
             ("chat", "✉   Chat"),
             ("memory", "◈   Memory"),
+            ("growth", "◒   Growth"),
             ("digest", "▤   Digest"),
         ):
             nav_button(name, label)
@@ -822,6 +824,56 @@ class AliceWindow:
             command=self._reject
         ).pack(side="left", padx=6)
 
+    def _build_growth_tab(self) -> None:
+        tab = self._page(
+            "growth",
+            "Growth",
+            "Slow-weighted dispositions learned from exploration sessions. "
+            "Core memory remains Jo-only.",
+        )
+        row = ttk.Frame(tab)
+        row.pack(fill="x", pady=(0, 6))
+        self.growth_note = tk.StringVar(value="")
+        ttk.Label(row, textvariable=self.growth_note, style="Sub.TLabel").pack(
+            side="left"
+        )
+        ttk.Button(
+            row,
+            text="Exploration folder",
+            style="Ghost.TButton",
+            command=self._open_exploration,
+        ).pack(side="right")
+        ttk.Button(
+            row, text="Refresh", style="Ghost.TButton", command=self.refresh
+        ).pack(side="right", padx=6)
+
+        panes = ttk.PanedWindow(tab, orient="horizontal")
+        panes.pack(fill="both", expand=True)
+        memories = ttk.LabelFrame(panes, text="Learned dispositions", padding=6)
+        sessions = ttk.LabelFrame(panes, text="Ingested sessions", padding=6)
+        panes.add(memories, weight=3)
+        panes.add(sessions, weight=2)
+        self.growth_tree = self._tree(
+            memories,
+            [
+                ("weight", "Weight", 60),
+                ("kind", "Kind", 70),
+                ("seen", "Seen", 50),
+                ("last", "Last seen", 130),
+                ("text", "Disposition", 430),
+            ],
+        )
+        self.growth_session_tree = self._tree(
+            sessions,
+            [
+                ("id", "ID", 45),
+                ("created", "Added", 130),
+                ("steps", "Steps", 50),
+                ("status", "Status", 80),
+                ("notes", "Notes", 45),
+            ],
+        )
+
     def _build_digest_tab(self) -> None:
         tab = self._page(
             "digest",
@@ -1107,6 +1159,7 @@ class AliceWindow:
         self._fill_events(dashboard)
         self._fill_suggestions(dashboard)
         self._fill_memory(dashboard)
+        self._fill_growth(dashboard)
         self._fill_dashboard(dashboard)
         self._fill_tools(dashboard)
         self._fill_system(dashboard)
@@ -1210,6 +1263,10 @@ class AliceWindow:
             f"Core memory ~{dashboard.core_tokens}/{dashboard.core_max_tokens} tokens · "
             f"{dashboard.approved_count} approved facts · "
             f"{dashboard.active_tasks} open tasks · {dashboard.embedded_count} embeddings\n"
+            f"Growth: {dashboard.growth_stats['memories']} dispositions from "
+            f"{dashboard.growth_stats['sessions']} "
+            f"session{'s' if dashboard.growth_stats['sessions'] != 1 else ''} · "
+            f"top weight {dashboard.growth_stats['top_weight']:.2f} · "
             f"{exploration_line} · {email_line}"
         )
 
@@ -1232,6 +1289,40 @@ class AliceWindow:
                     call.summary[:160],
                 ),
             )
+
+    def _fill_growth(self, dashboard: Dashboard) -> None:
+        self._clear(self.growth_tree)
+        for memory in dashboard.growth_memories:
+            self.growth_tree.insert(
+                "",
+                "end",
+                values=(
+                    f"{memory.weight:.2f}",
+                    memory.kind,
+                    memory.evidence_count,
+                    memory.last_seen[:16].replace("T", " "),
+                    memory.text,
+                ),
+            )
+        self._clear(self.growth_session_tree)
+        for session in dashboard.growth_sessions:
+            self.growth_session_tree.insert(
+                "",
+                "end",
+                values=(
+                    session.id,
+                    session.created[:16].replace("T", " "),
+                    session.steps,
+                    session.status or "-",
+                    len(session.themes),
+                ),
+            )
+        session_count = len(dashboard.growth_sessions)
+        self.growth_note.set(
+            f"{len(dashboard.growth_memories)} active dispositions · "
+            f"{session_count} recent session{'s' if session_count != 1 else ''} · "
+            "weights decay slowly and rise only with repetition"
+        )
 
     def _fill_tools(self, dashboard: Dashboard) -> None:
         self._clear(self.tool_tree)

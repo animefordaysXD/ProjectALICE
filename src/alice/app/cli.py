@@ -61,6 +61,7 @@ from .bootstrap import (
     build_backup,
     build_consolidation,
     build_digest,
+    build_growth,
     build_ingestion,
     build_memory,
     build_models,
@@ -561,12 +562,14 @@ def explore(
         except (CoreMemoryError, MemoryCapError):
             persona = ""
         redactor = Redactor(config.inputs.redaction.patterns)
+        growth = build_growth(config, conn, router)
         service = ExplorationService(
             router,
             tools,
             config.data_dir,
             persona=persona,
             sanitize=lambda text: redactor.redact(text).text,
+            growth=growth,
         )
         try:
             result = service.run(
@@ -591,6 +594,115 @@ def explore(
         )
     )
     click.echo(_line("summary", str(result.summary_path)))
+
+
+@main.group("growth")
+def growth_group() -> None:
+    """Inspect or feed Alice's slow-weighted growth memory."""
+
+
+@growth_group.command("list")
+@click.option("--limit", type=int, default=30, show_default=True)
+@click.pass_context
+def growth_list(ctx: click.Context, limit: int) -> None:
+    """Show learned dispositions and their current effective weights."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    _require_database(config)
+    conn = connect(config.db_path, create=False)
+    try:
+        service = build_growth(config, conn)
+        memories = service.memories(limit=max(1, limit))
+        if not memories:
+            click.echo("no growth memories yet; finish a session or ingest one")
+            return
+        for memory in memories:
+            click.echo(
+                f"{memory.weight:.2f}  {memory.kind:<8} {memory.text}  "
+                f"[seen {memory.evidence_count}x; {memory.key}]"
+            )
+    finally:
+        conn.close()
+
+
+@growth_group.command("sessions")
+@click.option("--limit", type=int, default=10, show_default=True)
+@click.pass_context
+def growth_sessions(ctx: click.Context, limit: int) -> None:
+    """Show sessions that fed growth memory."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    _require_database(config)
+    conn = connect(config.db_path, create=False)
+    try:
+        service = build_growth(config, conn)
+        rows = service.sessions(limit=max(1, limit))
+        if not rows:
+            click.echo("no ingested sessions yet")
+            return
+        for row in rows:
+            click.echo(
+                _line(
+                    f"#{row.id} {row.created}",
+                    f"{row.steps} steps, {row.status or 'unknown'}, "
+                    f"{len(row.themes)} notes, {row.session_dir or '-'}",
+                )
+            )
+    finally:
+        conn.close()
+
+
+@growth_group.command("ingest")
+@click.option(
+    "--session",
+    "session_dir",
+    type=click.Path(path_type=Path, exists=True, file_okay=False),
+    required=True,
+    help="Exploration session directory containing summary.md.",
+)
+@click.pass_context
+def growth_ingest(ctx: click.Context, session_dir: Path) -> None:
+    """Fold an existing session summary into growth memory."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    _require_database(config)
+    conn = connect(config.db_path, create=False)
+    try:
+        try:
+            router = build_models(config, conn)
+        except (ProviderNotConfigured, RouterError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        service = build_growth(config, conn, router)
+        try:
+            session_id = service.ingest_directory(session_dir)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(_line("session", f"#{session_id} {session_dir}"))
+        stats = service.stats()
+        click.echo(
+            _line(
+                "growth",
+                f"{stats['memories']} dispositions from "
+                f"{stats['sessions']} sessions",
+            )
+        )
+    finally:
+        conn.close()
+
+
+@growth_group.command("render")
+@click.pass_context
+def growth_render(ctx: click.Context) -> None:
+    """Print the exact block Alice sees in chat and exploration prompts."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    _require_database(config)
+    conn = connect(config.db_path, create=False)
+    try:
+        text = build_growth(config, conn).render()
+    finally:
+        conn.close()
+    click.echo(text or "growth memory is empty")
 
 
 @main.command()

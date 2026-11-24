@@ -120,6 +120,17 @@ tools:
   email_password_env: 'ALICE_NAVER_APP_PASSWORD'
   email_max_messages: 5
 
+growth:
+  # Slow-weighted dispositions learned from exploration sessions. Core memory
+  # stays Jo-only; this is a separate, subordinate layer.
+  enabled: true
+  max_notes_per_session: 5
+  max_weight: 0.80
+  daily_decay: 0.995
+  influence_alpha: 0.25
+  render_max_tokens: 300
+  min_weight: 0.03
+
 actions:
   # Applying a fix always requires a fresh typed confirmation in the GUI.
   # Programs are resolved from PATH and run without a shell.

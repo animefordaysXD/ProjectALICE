@@ -63,6 +63,9 @@ def test_repo_config_loads() -> None:
     assert config.tools.calendar_file == config.data_dir / "calendar.ics"
     assert config.tools.email_enabled is False
     assert config.tools.email_host == "imap.naver.com"
+    assert config.growth.enabled is True
+    assert config.growth.max_weight == 0.80
+    assert config.growth.daily_decay == 0.995
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120
 

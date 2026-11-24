@@ -70,7 +70,7 @@ def test_dashboard_snapshot(conn) -> None:
 
     dashboard = load_dashboard(settings, connection)
 
-    assert dashboard.schema_version == 11
+    assert dashboard.schema_version == 12
     assert dashboard.status_counts["escalated"] == 1
     assert dashboard.new_above_gate == 0
     assert dashboard.queued_suggestions == 1
@@ -91,6 +91,8 @@ def test_dashboard_snapshot(conn) -> None:
     assert dashboard.hardware["cpu_count"] >= 1
     assert dashboard.core_max_tokens > 0
     assert dashboard.plugins == ()
+    assert dashboard.growth_memories == ()
+    assert dashboard.growth_stats["sessions"] == 0
 
 
 def test_gui_module_imports() -> None:
