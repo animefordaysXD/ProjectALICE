@@ -54,6 +54,8 @@ Rules:
   good. "Always talk about clocks" is a rule and is rejected.
 - Use a short stable lowercase key so the same disposition accumulates across
   sessions, e.g. "history-of-timekeeping", "stub-pages", "language-drift".
+  If a note fits one of the existing dispositions shown below, reuse that exact
+  key so its weight is reinforced instead of creating a near-duplicate.
 - Confidence is 0.0-1.0. Use 0.3-0.5 for a one-off curiosity, 0.6-0.8 only for
   something clearly repeated inside this session.
 
@@ -424,13 +426,21 @@ class GrowthService:
                 titles.append(title)
         if self.router is not None:
             try:
+                existing = self.memories(limit=20)
+                existing_lines = "\n".join(
+                    f"- {memory.key} ({memory.kind}, {memory.weight:.2f}): "
+                    f"{memory.text}"
+                    for memory in existing
+                )
                 completion = self.router.complete(
                     "reason",
                     [
                         Message("system", GROWTH_PROMPT),
                         Message(
                             "user",
-                            "Session summary:\n"
+                            "Existing dispositions:\n"
+                            + (existing_lines or "- none yet")
+                            + "\n\nSession summary:\n"
                             + summary[:MAX_SESSION_SUMMARY_CHARS]
                             + "\n\nPages visited:\n"
                             + "\n".join(f"- {title}" for title in titles[:50]),
