@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, passive local calendar/activity monitoring, local screen OCR with suggestion pings, and an in-app ping inbox. 392 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, passive local calendar/activity monitoring, local screen OCR with suggestion pings, and an in-app ping inbox. 397 tests pass.
 
 ---
 
@@ -95,6 +95,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Ambient | Local foreground app/category/idle, calendar lookahead, focus and context-switch feedback, queued through normal suggestions and in-app pings |
 | Screen | Opt-in local Windows OCR of the primary monitor; redacted excerpt only, in-memory screenshot, excluded password apps/titles |
 | Pings | In-app bell, unread badge, transient banner, optional system beep, read state, digest fallback |
+| Roam | Time-boxed, supervised, read-only PC exploration; idle-aware lease, restartable worker, journal, suggestions, growth memory, final summary |
 | Files | Read-only chat attachments and directory listing under configured roots, redacted and size-capped; no writes or automatic indexing |
 | Exploration | Six-hour-style autonomous read-only Wikipedia sessions with a step journal, JSONL trail, token accounting, and a final summary |
 | Growth | Summarized session reflections become weighted dispositions; slow EMA updates, time decay, and a token-capped prompt block beneath core memory |
@@ -106,7 +107,7 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Recovery | Crash-safe cursors: restart loses nothing and writes no duplicates |
 | CI | Windows GitHub Actions: tests, crash proof, exe build, smoke test, release asset |
 | Alerts | Budget refusals recorded and shown in the digest |
-| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui`, `tools`, `explore`, `growth` |
+| CLI | `init`, `run`, `status`, `discover`, `pause`, `resume`, `approve`, `consolidate`, `backup`, `report`, `startup`, `gui`, `tools`, `explore`, `growth`, `monitor`, `roam` |
 | Packaging | Single-file `alice.exe`, `alice-gui.exe`, portable folder, zip, setup shortcuts |
 
 ---
@@ -334,6 +335,15 @@ tools:
   email_password_env: 'ALICE_NAVER_APP_PASSWORD'
   email_max_messages: 5
 
+roam:
+  enabled: true
+  idle_minutes: 5
+  step_seconds: 300
+  max_steps: 500
+  memory_seconds: 600
+  max_suggestions: 3
+  allow_when_active: false
+
 growth:
   enabled: true
   max_notes_per_session: 5
@@ -520,6 +530,9 @@ fix actions you approve:
 - **Ambient:** current foreground app/category and idle time, the next calendar
   event, screen-monitor status/excerpt, recent ambient alerts, and a shortcut to
   the calendar folder.
+- **Roam:** choose a lease length, idle-only or explicit designation, start/stop
+  the supervised read-only worker, and inspect active time, steps, last action,
+  session folder, and summary.
 - **Tools & plugins:** tool readiness, the web allowlist, email/calendar status,
   registered plugins, and the recent tool-call audit.
 - **System & usage:** live CPU/memory/disk/uptime/process counters plus total
@@ -723,6 +736,48 @@ monitor:
   exclude_titles: ['password', 'incognito', 'private browsing', 'inprivate']
   excerpt_chars: 300
 ```
+
+## Roaming leases
+
+Roam lets Alice explore this PC during a time-boxed, supervised lease without a
+typed approval for every read. It is deliberately **read-only**: she may list
+and read text files under `files.roots`, inspect system/screen context, read the
+local calendar, and fetch public web pages. She cannot write files, run
+commands, send mail, or change settings. Her only write path is the session
+journal and summary under `<data>/roam/`.
+
+```powershell
+# Create and run a 60-minute lease; explicit designation even while active
+alice roam --minutes 60 --now
+
+# Create a lease and print its id, then supervise it separately
+alice roam --minutes 360 --now --create-only
+alice roam --session 7 --supervise --now
+
+# Status and stop
+alice roam --status
+alice roam --stop
+```
+
+By default, only idle time counts. If the keyboard/mouse becomes active, the
+worker pauses until the machine is idle again. `--now` is the explicit
+designation override and runs even while you are using the PC.
+
+A worker checkpoints `active_seconds`, steps, and the journal after every action.
+The model does not own the lease duration: if it asks to stop early, the worker
+takes a bounded fallback step and continues. `--supervise` restarts the worker if
+it exits before the target active time is reached. `scripts/run_roam.ps1` is the
+external supervisor used by the GUI and a Scheduled Task; it restarts the worker
+and only exits on `completed`/`stopped`.
+
+The **Roam** page has the same lease controls: minutes, idle-only checkbox,
+start, stop, session folder, and live status. Every action is stored in
+`roam_actions`; the journal and final summary are local files.
+
+Roaming can still read personal text, because it can read files in your allowed
+roots. Use `files.roots` and `roam.idle_minutes` deliberately. The model receives
+redacted excerpts only; secrets the redactor does not recognize can still pass
+through if they are in a file you allowed.
 
 ## Exploration sessions
 
@@ -1252,7 +1307,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-392 tests cover:
+397 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - read-only tools, tool-call auditing, calendar creation, domain allowlisting;
@@ -1263,7 +1318,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
   feedback, idle suppression, screen OCR/UIA gating, scenario hints,
   credential-line scrubbing, accessibility context, scenario hints, growth
   notes from screen observations, question pings, in-app notification
-  creation/read state, and monitor validation;
+  creation/read state, monitor validation, roam lease/worker/supervisor,
+  stop handling, disallowed-tool fallback, journal/summary, and growth feed;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1440,6 +1496,15 @@ milestone in the original spec.
 - Redaction is pattern-based. Screen text can contain names or secrets the
   redactor does not recognize. Enable screen following only if you accept that
   the redacted excerpt is sent to your configured model.
+- Roam is read-only on purpose. It cannot act on findings; action changes still
+  go through the suggestion/fix approval path. A killed worker is restarted by
+  the supervisor, but a shutdown/logout longer than the Scheduled Task restart
+  policy will pause the lease until Alice runs again.
+- Roam counts **active leased time**, not wall-clock time. An idle-only lease
+  that pauses when you return can therefore take longer than its nominal hours.
+- Screen/file content can contain secrets the pattern redactor does not
+  recognize. `file.read` is bounded and redacted, but it is still a read of the
+  files you allow under `files.roots`.
 - If a detached session process is killed before it writes `summary.md`, run
   `alice growth ingest --session <dir>` after recovering or writing a summary.
 - Fix actions are model-drafted. The command may be wrong; approve only what you

@@ -137,7 +137,7 @@ def test_restore_roundtrip(conn, data_dir: Path, tmp_path: Path) -> None:
     target = tmp_path / "restored"
     restored = restore_backup(result.path, target)
 
-    assert restored.schema == 14
+    assert restored.schema == 15
     assert restored.day == "2026-11-22"
     assert set(restored.files) == {"alice.db", "memory/core.json"}
     restored_conn = connect(target / "alice.db", create=False)

@@ -17,6 +17,8 @@ other module.
 - `activity.py`, `accessibility.py`, `ambient.py`, `calendar.py`, `screen.py`,
   `monitor.py`: passive local context, bounded UI Automation + OCR, and
   screen-following suggestions.
+- `roam.py`: supervised, time-boxed read-only PC exploration with a restartable
+  worker, journal, suggestions, growth memory, and final summary.
 - Future: a service host if per-user DPAPI and desktop observation stop being
   requirements.
 

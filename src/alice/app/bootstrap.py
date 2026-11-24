@@ -28,6 +28,7 @@ from ..models.fake import FakeProvider
 from ..outputs import DigestWriter, SuggestionQueue, build_notifier
 from .ambient import AmbientMonitor
 from .monitor import ScreenMonitor
+from .roam import RoamService
 from .settings import AppSettings
 from .tools import build_tools
 
@@ -278,6 +279,26 @@ def build_monitor(
         settings.data_dir,
         calendar_file=settings.tools.calendar_file,
         growth=build_growth(settings, conn, router),
+        sanitize=lambda text: redactor.redact(text).text,
+    )
+
+
+def build_roam(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router,
+    queue: SuggestionQueue,
+) -> RoamService:
+    redactor = Redactor(settings.inputs.redaction.patterns)
+    return RoamService(
+        conn,
+        router,
+        build_tools(settings, conn),
+        settings.roam,
+        settings.data_dir,
+        queue=queue,
+        growth=build_growth(settings, conn, router),
+        calendar_file=settings.tools.calendar_file,
         sanitize=lambda text: redactor.redact(text).text,
     )
 

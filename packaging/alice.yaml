@@ -129,6 +129,18 @@ monitor:
   exclude_titles: ['password', 'incognito', 'private browsing', 'inprivate']
   excerpt_chars: 300
 
+roam:
+  # Time-boxed read-only exploration of the PC. No writes, commands, mail, or
+  # settings changes. A session counts only time while Jo is idle unless the
+  # explicit --now lease override is used.
+  enabled: true
+  idle_minutes: 5
+  step_seconds: 300
+  max_steps: 500
+  memory_seconds: 600
+  max_suggestions: 3
+  allow_when_active: false
+
 growth:
   # Slow-weighted dispositions learned from exploration sessions. Core memory
   # stays Jo-only; this is a separate, subordinate layer.

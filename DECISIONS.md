@@ -1285,6 +1285,54 @@ This is deliberately weaker evidence than an exploration session. A screen
 glance is not a considered interest; repetition is required before it changes
 behavior.
 
+## 2026-11-25 - Supervised read-only roaming leases
+
+Jo asked for a way to let Alice roam the PC for a chosen duration when away or
+explicitly designated, with a supervised six-hour session and a summary.
+
+### Read-only is the lease boundary
+
+A roam lease does not grant general action authority. It allows the existing
+read-only tools: file list/read under `files.roots`, system/activity/UIA/OCR
+context, the local calendar, and public web fetch. It cannot write files, run
+commands, send mail, or change settings. The only writes are the session
+journal, action log, and summary under `<data>/roam/`.
+
+This is deliberate. "Roam" should not become an unreviewed shell. If Jo wants
+action autonomy later, it needs a separate capability with an explicit
+allowlist and rollback model.
+
+### Lease and time accounting
+
+A session stores `target_seconds` and `active_seconds`. Active time is counted
+only when the lease is allowed to run: by default the machine must be idle for
+`roam.idle_minutes`; `--now` is the explicit designation override. Returning to
+the keyboard pauses an idle lease instead of ending it. This means a nominal
+six-hour lease can take longer than six wall-clock hours if Jo returns. That is
+the honest interpretation of "when I'm not using it".
+
+### Supervision
+
+The worker checkpoints after every step. `--supervise` retries a failing worker
+until the row reaches `completed` or `stopped`. The GUI and the external
+`scripts/run_roam.ps1` use the same supervisor; a Windows Scheduled Task can
+start or restart it. A summary is written when the lease ends, and an explicit
+`--stop` marks the session stopped rather than completed.
+
+An early model `stop` is not authoritative. The first six-hour attempt ended at
+step zero because the model decided further reading would be too private. Jo
+owns the lease, so the worker now treats a model stop as a request and takes a
+bounded read-only fallback step until the target time or an explicit Jo stop.
+This keeps the "redo until the full six hours are done" promise meaningful.
+
+### Model failure fallback
+
+The roam model may return malformed JSON or an unapproved tool. Instead of
+ending the lease, the worker uses a deterministic sequence of bounded read-only
+steps (profile listing, Documents, Downloads, system snapshot, activity,
+time, Wikipedia). This keeps a supervised session alive and auditable while
+still making useful observations.
+
 ### Why not copy Everywhere
 
 Everywhere is C#/.NET and AGPL-3.0. Alice is a Python modular monolith. Copying

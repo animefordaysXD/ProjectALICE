@@ -75,6 +75,9 @@ def test_repo_config_loads() -> None:
     assert config.monitor.analyze_seconds == 120
     assert config.monitor.use_accessibility is True
     assert config.monitor.memory_seconds == 600
+    assert config.roam.enabled is True
+    assert config.roam.idle_minutes == 5
+    assert config.roam.step_seconds == 300
     assert "keepassxc.exe" in config.monitor.exclude_apps
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import subprocess
+import sys
 import threading
 import webbrowser
 from datetime import datetime
@@ -249,6 +251,7 @@ class AliceWindow:
         self._build_growth_tab()
         self._build_digest_tab()
         self._build_ambient_tab()
+        self._build_roam_tab()
         self._build_tools_tab()
         self._build_system_tab()
         self._build_footer(main)
@@ -331,6 +334,7 @@ class AliceWindow:
         section("SYSTEM")
         for name, label in (
             ("ambient", "◉   Ambient"),
+            ("roam", "◐   Roam"),
             ("tools", "⌘   Tools & plugins"),
             ("system", "▥   System & usage"),
         ):
@@ -1146,6 +1150,243 @@ class AliceWindow:
             ],
         )
 
+    def _build_roam_tab(self) -> None:
+        tab = self._page(
+            "roam",
+            "Roam",
+            "Time-boxed, supervised, read-only exploration of this PC. "
+            "No file writes, commands, mail, or settings changes.",
+        )
+        panel = tk.Frame(
+            tab, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1
+        )
+        panel.pack(fill="x", pady=(4, 8))
+        body = tk.Frame(panel, bg=CARD_BG)
+        body.pack(fill="x", padx=16, pady=14)
+        self.roam_status = tk.StringVar(value="No roam session yet.")
+        tk.Label(
+            body,
+            textvariable=self.roam_status,
+            bg=CARD_BG,
+            fg=INK,
+            font=("Segoe UI Semibold", 12),
+            anchor="w",
+            justify="left",
+            wraplength=940,
+        ).pack(anchor="w")
+        self.roam_detail = tk.StringVar(value="")
+        tk.Label(
+            body,
+            textvariable=self.roam_detail,
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=940,
+        ).pack(anchor="w", pady=(4, 10))
+
+        controls = tk.Frame(body, bg=CARD_BG)
+        controls.pack(fill="x")
+        tk.Label(
+            controls, text="Minutes", bg=CARD_BG, fg=MUTED, font=("Segoe UI", 9)
+        ).pack(side="left")
+        self.roam_minutes = tk.StringVar(value="60")
+        tk.Entry(
+            controls,
+            textvariable=self.roam_minutes,
+            width=7,
+            bg="#151b2b",
+            fg=INK,
+            insertbackground=INK,
+            relief="flat",
+        ).pack(side="left", padx=(6, 14), ipady=4)
+        self.roam_idle_only = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            controls,
+            text="Only while I'm idle",
+            variable=self.roam_idle_only,
+            bg=CARD_BG,
+            fg=INK,
+            activebackground=CARD_BG,
+            activeforeground=INK,
+            selectcolor="#151b2b",
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 14))
+        ttk.Button(
+            controls,
+            text="Start roaming",
+            style="Primary.TButton",
+            command=self._start_roam,
+        ).pack(side="left")
+        ttk.Button(
+            controls,
+            text="Stop",
+            style="Ghost.TButton",
+            command=self._stop_roam,
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            controls,
+            text="Session folder",
+            style="Ghost.TButton",
+            command=self._open_roam,
+        ).pack(side="left")
+        ttk.Button(
+            controls, text="Refresh", style="Ghost.TButton", command=self.refresh
+        ).pack(side="right")
+
+        notes = ttk.LabelFrame(tab, text="Lease rules", padding=10)
+        notes.pack(fill="both", expand=True)
+        tk.Label(
+            notes,
+            text=(
+                "Alice may list/read files under files.roots, inspect system and "
+                "screen context, read the local calendar, and fetch public pages.\n"
+                "She cannot write files, run commands, send email, or change "
+                "settings. Active time counts only while the lease is running; "
+                "returning to the PC pauses an idle-only lease.\n"
+                "A supervisor restarts the worker if it exits early."
+            ),
+            bg=BG,
+            fg=MUTED,
+            justify="left",
+            anchor="w",
+            wraplength=960,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w")
+
+    def _fill_roam(self) -> None:
+        latest = self._roam_latest()
+        if not latest:
+            self.roam_status.set("No roam session yet.")
+            self.roam_detail.set("")
+            return
+        active = int(latest.get("active_seconds") or 0)
+        target = int(latest.get("target_seconds") or 0)
+        status = str(latest.get("status") or "unknown")
+        self.roam_status.set(
+            f"Roam session {latest.get('session_id', '?')} · {status}"
+        )
+        detail = f"{active // 60} / {max(1, target // 60)} active minutes · "
+        detail += f"{latest.get('steps', 0)} steps"
+        if latest.get("last_tool"):
+            detail += f" · last: {latest['last_tool']}"
+        if latest.get("summary_path"):
+            detail += f" · summary: {latest['summary_path']}"
+        self.roam_detail.set(detail)
+        button = self.nav_buttons.get("roam")
+        if button is not None:
+            if status in ("active", "running", "waiting-for-idle", "created"):
+                button.configure(text="◐   Roam •")
+            else:
+                button.configure(text="◐   Roam")
+
+    def _roam_latest(self) -> dict:
+        import json
+
+        path = self.settings.data_dir / "roam" / "latest.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _start_roam(self) -> None:
+        try:
+            minutes = float(self.roam_minutes.get().strip())
+        except ValueError:
+            messagebox.showerror("Alice", "Minutes must be a number.")
+            return
+        if minutes <= 0:
+            messagebox.showerror("Alice", "Minutes must be positive.")
+            return
+        force = not bool(self.roam_idle_only.get())
+        warning = (
+            f"Let Alice roam this PC for {minutes:g} minutes?\n\n"
+            "Read-only: files, system, screen, calendar, public web. "
+            "No writes or commands. A supervisor restarts her if she stops early."
+        )
+        if force:
+            warning += "\n\nIdle check is OFF: she will run even while you use the PC."
+        if not messagebox.askyesno("Alice", warning):
+            return
+        try:
+            from .roam import RoamService
+
+            service = RoamService(
+                self.conn,
+                None,
+                None,
+                self.settings.roam,
+                self.settings.data_dir,
+                queue=SuggestionQueue(self.conn),
+            )
+            session_id = service.create_session(
+                max(1, int(minutes * 60)), force=force
+            )
+        except Exception as exc:
+            messagebox.showerror("Alice", f"Could not create roam lease: {exc}")
+            return
+        try:
+            self._launch_roam_supervisor(session_id, force)
+        except Exception as exc:
+            messagebox.showerror("Alice", f"Could not start supervisor: {exc}")
+            return
+        self.footer.set(f"Roam session {session_id} started.")
+        self._show_page("roam")
+        self.refresh()
+
+    def _launch_roam_supervisor(self, session_id: int, force: bool) -> None:
+        if getattr(sys, "frozen", False):
+            runner = [str(Path(sys.executable).with_name("alice.exe"))]
+        else:
+            runner = [sys.executable, "-m", "alice"]
+        command = runner + [
+            "--config",
+            str(self.settings.path),
+            "--data-dir",
+            str(self.settings.data_dir),
+            "roam",
+            "--session",
+            str(session_id),
+            "--supervise",
+        ]
+        if force:
+            command.append("--now")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            command,
+            cwd=str(self.settings.root),
+            creationflags=flags,
+            close_fds=True,
+        )
+
+    def _stop_roam(self) -> None:
+        latest = self._roam_latest()
+        session_id = latest.get("session_id")
+        if not session_id:
+            messagebox.showinfo("Alice", "No roam session to stop.")
+            return
+        try:
+            from .roam import RoamService
+
+            RoamService(
+                self.conn,
+                None,
+                None,
+                self.settings.roam,
+                self.settings.data_dir,
+                queue=SuggestionQueue(self.conn),
+            ).stop(int(session_id), "stopped from GUI")
+        except Exception as exc:
+            messagebox.showerror("Alice", f"Could not stop roam: {exc}")
+            return
+        self.footer.set(f"Roam session {session_id} stopped.")
+        self.refresh()
+
+    def _open_roam(self) -> None:
+        self._open(self.settings.data_dir / "roam")
+
     def _build_tools_tab(self) -> None:
         tab = self._page(
             "tools",
@@ -1328,6 +1569,7 @@ class AliceWindow:
         self._fill_memory(dashboard)
         self._fill_growth(dashboard)
         self._fill_ambient(dashboard)
+        self._fill_roam()
         self._fill_dashboard(dashboard)
         self._refresh_pings()
         self._fill_tools(dashboard)

@@ -132,6 +132,7 @@ src/alice/
     ambient.py             calendar/focus/context-switch rules
     calendar.py            local .ics parsing
     monitor.py             screen UI+OCR analysis and suggestions
+    roam.py                supervised read-only PC roaming worker
     screen.py              in-memory Windows OCR capture
     system_info.py         CPU/RAM/disk snapshot
     tools.py               read-only tool registry
@@ -301,6 +302,8 @@ SQL.
 | `actions` | core | core action runner | GUI/status |
 | `tool_calls` | app | read-only tools | GUI audit |
 | `ambient_alerts` | app | ambient monitor | GUI |
+| `roam_sessions` | app | roam service | GUI/CLI |
+| `roam_actions` | app | roam service | CLI |
 | `backup_runs` | core | core backup service | status/backup |
 | `suggestions` | outputs | outputs; user status/cluster merges | outputs/GUI |
 | `notifications` | outputs | queue; GUI read state | GUI |
@@ -353,6 +356,7 @@ One YAML file is parsed by `app/settings.py`; each module owns its parser in
 | `growth` | brain | done |
 | `ambient` | app | done |
 | `monitor` | app | done |
+| `roam` | app | done |
 
 ## Plugins: policy
 

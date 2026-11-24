@@ -70,6 +70,7 @@ from .bootstrap import (
     build_notifications,
     build_queue,
     build_reasoning,
+    build_roam,
     build_triage,
 )
 from .settings import AppSettings, load_settings
@@ -493,6 +494,87 @@ def gui(ctx: click.Context) -> None:
         run_gui(config.path, config.data_dir)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@main.command("roam")
+@click.option("--minutes", type=float, default=60.0, show_default=True)
+@click.option("--now", is_flag=True, help="Allow roaming even while Jo is active.")
+@click.option("--create-only", is_flag=True, help="Create a lease and print its id.")
+@click.option("--session", type=int, default=None, help="Use an existing session id.")
+@click.option("--status", is_flag=True, help="Show the lease/session state.")
+@click.option("--stop", is_flag=True, help="Stop a running lease.")
+@click.option("--worker", is_flag=True, help="Run one worker pass and exit.")
+@click.option("--supervise", is_flag=True, help="Run and restart until complete.")
+@click.pass_context
+def roam_command(
+    ctx: click.Context,
+    minutes: float,
+    now: bool,
+    create_only: bool,
+    session: int | None,
+    status: bool,
+    stop: bool,
+    worker: bool,
+    supervise: bool,
+) -> None:
+    """Time-boxed read-only PC roaming with a restartable supervisor."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    setup_logging(config.log_dir, verbose=ctx.obj["verbose"])
+    _require_database(config)
+    ensure_calendar_file(config.tools.calendar_file)
+    conn = connect(config.db_path, create=False)
+    try:
+        try:
+            router = build_models(config, conn)
+        except (ProviderNotConfigured, RouterError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        queue = build_queue(conn)
+        service = build_roam(config, conn, router, queue)
+
+        if status:
+            latest = service.latest() or {}
+            sid = session or int(latest.get("session_id") or 0)
+            if sid:
+                row = service.session(sid)
+                click.echo(json.dumps(row, ensure_ascii=False, indent=2, default=str))
+            else:
+                click.echo("no roam session yet")
+            return
+
+        if stop:
+            latest = service.latest() or {}
+            sid = session or int(latest.get("session_id") or 0)
+            if not sid:
+                raise click.ClickException("no roam session to stop")
+            service.stop(sid, "stopped by Jo")
+            click.echo(_line("roam", f"session {sid} stopped"))
+            return
+
+        sid = session
+        if sid is None:
+            sid = service.create_session(
+                max(1, int(minutes * 60)), force=now
+            )
+            click.echo(_line("roam", f"session {sid} created"))
+            if create_only:
+                row = service.session(sid) or {}
+                click.echo(_line("target", f"{row.get('target_seconds')} seconds"))
+                click.echo(_line("session dir", str(row.get("session_dir"))))
+                return
+        if worker:
+            result = service.run(sid, force=now)
+            click.echo(_line("roam", f"session {sid} {result.get('status')}"))
+            return
+        if not supervise and session is not None:
+            result = service.run(sid, force=now)
+            click.echo(_line("roam", f"session {sid} {result.get('status')}"))
+            return
+        result = service.supervise(sid, force=now)
+        click.echo(_line("roam", f"session {sid} {result.get('status')}"))
+        click.echo(_line("summary", str(result.get("summary_path") or "-")))
+    finally:
+        conn.close()
 
 
 @main.command("monitor")

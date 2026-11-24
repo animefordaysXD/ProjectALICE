@@ -33,6 +33,7 @@ from ..outputs.config import Notify, OutputsConfig, parse_outputs
 from ..plugins.config import PluginsConfig, parse_plugins
 from .ambient_config import AmbientConfig, parse_ambient
 from .monitor_config import MonitorConfig, parse_monitor
+from .roam_config import RoamConfig, parse_roam
 from .tools_config import ToolsConfig, parse_tools
 
 TOP_LEVEL = {
@@ -55,6 +56,7 @@ TOP_LEVEL = {
     "growth",
     "ambient",
     "monitor",
+    "roam",
 }
 
 
@@ -73,6 +75,7 @@ class AppSettings:
     growth: GrowthConfig
     ambient: AmbientConfig
     monitor: MonitorConfig
+    roam: RoamConfig
 
     @property
     def data_dir(self) -> Path:
@@ -171,6 +174,7 @@ def load_settings(
         growth=parse_growth(raw.get("growth")),
         ambient=parse_ambient(raw.get("ambient")),
         monitor=parse_monitor(raw.get("monitor")),
+        roam=parse_roam(raw.get("roam")),
     )
 
 
