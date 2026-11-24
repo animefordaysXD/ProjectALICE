@@ -1203,3 +1203,40 @@ will restart at logon. Ambient state that matters for dedupe lives in
 `ambient_alerts`; focus/switch counters are in-memory and reset with the process,
 which is acceptable for short-horizon feedback.
 
+## 2026-11-24 - Screen following and in-app pings
+
+### Toasts are gone
+
+Windows toasts were unreliable enough to hide the feature: win11toast waits for
+dismissal, the old timeout marked delivered notifications as failures, and the
+fallback cooldown silenced the next ten minutes. Jo asked for a ping instead, so
+every new suggestion writes a `notifications` row and the desktop GUI shows a
+bell badge, an in-window banner, and a system beep. Read state is independent of
+suggestion state. When the GUI is closed, unread pings wait in SQLite. No
+Windows notification is attempted.
+
+### Why OCR, not screenshots
+
+"Follow my monitor" could mean sending frames to a vision model. That is a large
+privacy and dependency step. Windows OCR is local, available on this machine,
+and produces text Alice can reason about with the existing model tier. The
+screenshot is held in memory only, never written to disk. The OCR text is
+truncated, stripped of obvious credential lines, and redacted with the normal
+patterns before it enters the prompt. The model receives text, not images.
+
+This is still a real privacy change: OCR can contain names and content no regex
+recognizes. Monitor following is therefore config-gated, skips password-manager
+apps and password/incognito titles, skips idle screens, and is documented as
+unsafe for a shared display. The local state file keeps only a short excerpt for
+the Ambient page.
+
+### Rate and noise
+
+Capture is cheap and local; analysis is the expensive part. The default is one
+OCR sample every 20 seconds, one model analysis every 5 minutes, and only when
+the normalized screen text changed. The model may return zero or one suggestion,
+with a confidence floor and a suggestion cluster so repeats merge. The prompt is
+explicit that screen text is untrusted and that medical/legal/financial advice
+is out of scope. Suggestions use the ordinary queue and therefore the ordinary
+ping path.
+

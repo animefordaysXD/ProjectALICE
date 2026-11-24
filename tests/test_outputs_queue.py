@@ -9,6 +9,7 @@ import pytest
 from alice.contracts.outputs import Suggestion
 from alice.core.db import connect, init_db, utc_now
 from alice.outputs.config import Notify
+from alice.outputs.inbox import NotificationCenter
 from alice.outputs.queue import SuggestionQueue, is_quiet
 
 
@@ -32,6 +33,22 @@ def conn(tmp_path):
     connection.close()
 
 
+def test_submit_creates_in_app_notification(conn) -> None:
+    suggestion_id = SuggestionQueue(conn).submit(
+        Suggestion("Check the disk", 2, (), "disk warning", category="performance")
+    )
+    center = NotificationCenter(conn)
+    unread = center.unread()
+    assert len(unread) == 1
+    assert unread[0].suggestion_id == suggestion_id
+    assert unread[0].kind == "performance"
+    assert unread[0].read is False
+
+    center.mark_read(unread[0].id)
+    assert center.unread_count() == 0
+    assert center.recent()[0].read is True
+
+
 def test_quiet_hours_ranges() -> None:
     assert is_quiet(datetime(2026, 11, 22, 10, 0), "09:00-17:00") is True
     assert is_quiet(datetime(2026, 11, 22, 18, 0), "09:00-17:00") is False
@@ -48,6 +65,7 @@ def test_submit_and_deliver_respects_priority(conn) -> None:
     queue.submit(Suggestion("useful", 2, reason="r"))
     notifier = FakeNotifier()
     config = Notify(
+        mode="digest+toast",
         quiet_hours="22:00-08:00",
         max_toasts_per_hour=2,
         min_toast_priority=2,
@@ -77,7 +95,7 @@ def test_quiet_hours_suppress_delivery(conn) -> None:
 
     delivered = queue.deliver(
         notifier,
-        Notify(quiet_hours="22:00-08:00"),
+        Notify(mode="digest+toast", quiet_hours="22:00-08:00"),
         now=datetime(2026, 11, 22, 23, 0),
     )
 
@@ -103,7 +121,7 @@ def test_notifier_failure_keeps_suggestion_queued(conn) -> None:
 
     assert queue.deliver(
         FakeNotifier(ok=False),
-        Notify(quiet_hours="22:00-08:00"),
+        Notify(mode="digest+toast", quiet_hours="22:00-08:00"),
         now=datetime(2026, 11, 22, 12, 0),
     ) == 0
     assert conn.execute("SELECT status FROM suggestions").fetchone()[0] == "queued"

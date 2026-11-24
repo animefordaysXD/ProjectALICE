@@ -57,7 +57,12 @@ def test_digest_lists_suggestions_and_alerts(conn, tmp_path) -> None:
         (STAMP,),
     )
     conn.commit()
-    writer = DigestWriter(conn, tmp_path, Notify(), lambda: snapshot(("hard cap reached",)))
+    writer = DigestWriter(
+        conn,
+        tmp_path,
+        Notify(mode="digest+toast"),
+        lambda: snapshot(("hard cap reached",)),
+    )
     notifier = FakeNotifier()
 
     result = writer.write(now=NOON, notifier=notifier)
@@ -79,7 +84,7 @@ def test_digest_lists_suggestions_and_alerts(conn, tmp_path) -> None:
 
 
 def test_digest_respects_quiet_hours_for_the_summary_toast(conn, tmp_path) -> None:
-    writer = DigestWriter(conn, tmp_path, Notify(), snapshot)
+    writer = DigestWriter(conn, tmp_path, Notify(mode="digest+toast"), snapshot)
     notifier = FakeNotifier()
 
     result = writer.write(now=datetime(2026, 11, 22, 23, 0), notifier=notifier)

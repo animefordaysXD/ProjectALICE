@@ -32,6 +32,7 @@ from ..models.config import Budget, ModelsConfig, parse_models
 from ..outputs.config import Notify, OutputsConfig, parse_outputs
 from ..plugins.config import PluginsConfig, parse_plugins
 from .ambient_config import AmbientConfig, parse_ambient
+from .monitor_config import MonitorConfig, parse_monitor
 from .tools_config import ToolsConfig, parse_tools
 
 TOP_LEVEL = {
@@ -53,6 +54,7 @@ TOP_LEVEL = {
     "tools",
     "growth",
     "ambient",
+    "monitor",
 }
 
 
@@ -70,6 +72,7 @@ class AppSettings:
     tools: ToolsConfig
     growth: GrowthConfig
     ambient: AmbientConfig
+    monitor: MonitorConfig
 
     @property
     def data_dir(self) -> Path:
@@ -167,6 +170,7 @@ def load_settings(
         tools=parse_tools(raw.get("tools"), data_path),
         growth=parse_growth(raw.get("growth")),
         ambient=parse_ambient(raw.get("ambient")),
+        monitor=parse_monitor(raw.get("monitor")),
     )
 
 

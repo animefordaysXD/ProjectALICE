@@ -14,7 +14,7 @@ _QUIET_HOURS_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$
 
 @dataclass(frozen=True)
 class Notify:
-    mode: str = "digest+toast"
+    mode: str = "digest"
     quiet_hours: str = "22:00-08:00"
     max_toasts_per_hour: int = 3
     min_toast_priority: int = 2
@@ -32,7 +32,7 @@ def parse_outputs(raw: Any) -> OutputsConfig:
         {"mode", "quiet_hours", "max_toasts_per_hour", "min_toast_priority"},
         "notify",
     )
-    mode = get_string(mapping, "mode", "notify", default="digest+toast")
+    mode = get_string(mapping, "mode", "notify", default="digest")
     if mode not in NOTIFY_MODES:
         raise ConfigError(f"notify.mode must be one of: {', '.join(NOTIFY_MODES)}")
     quiet_hours = get_string(mapping, "quiet_hours", "notify", default="22:00-08:00")

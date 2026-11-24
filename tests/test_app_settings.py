@@ -70,6 +70,9 @@ def test_repo_config_loads() -> None:
     assert config.ambient.enabled is True
     assert config.ambient.focus_minutes == 90
     assert config.ambient.calendar_lookahead_minutes == 30
+    assert config.monitor.enabled is True
+    assert config.monitor.capture_seconds == 20
+    assert "keepassxc.exe" in config.monitor.exclude_apps
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120
 
@@ -86,7 +89,7 @@ def test_defaults_and_paths(config_path: Path) -> None:
 
     # Sections absent from the minimal config fall back to defaults.
     assert config.triage.max_batch_tokens == 3000
-    assert config.notify.mode == "digest+toast"
+    assert config.notify.mode == "digest"
     assert config.retention.raw_payload_days == 14
     assert config.core.backup.enabled is True
     assert config.core.backup.dir == root / "state" / "backups"

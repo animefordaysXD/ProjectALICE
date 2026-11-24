@@ -66,6 +66,7 @@ from .bootstrap import (
     build_ingestion,
     build_memory,
     build_models,
+    build_monitor,
     build_notifications,
     build_queue,
     build_reasoning,
@@ -492,6 +493,36 @@ def gui(ctx: click.Context) -> None:
         run_gui(config.path, config.data_dir)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@main.command("monitor")
+@click.option(
+    "--capture",
+    is_flag=True,
+    help="Capture one local OCR sample and print a short excerpt.",
+)
+@click.pass_context
+def monitor_command(ctx: click.Context, capture: bool) -> None:
+    """Inspect screen-following status or test local OCR."""
+    config = _load_config(ctx)
+    _prepare_runtime(config)
+    if not capture:
+        state_path = config.data_dir / "monitor_state.json"
+        if state_path.is_file():
+            click.echo(state_path.read_text(encoding="utf-8"))
+        else:
+            click.echo("no monitor state yet; run `alice run` first")
+        return
+    from .screen import capture_screen_text
+
+    screen = capture_screen_text()
+    if screen is None:
+        raise click.ClickException(
+            "screen OCR returned no text; check the desktop session and Windows OCR language pack"
+        )
+    click.echo(_line("screen", f"{screen.width}x{screen.height}"))
+    click.echo(_line("chars", str(len(screen.text))))
+    click.echo(screen.text[:1000])
 
 
 @main.command("tools")
@@ -1083,6 +1114,7 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
     except (ProviderNotConfigured, RouterError) as exc:
         conn.close()
         raise click.ClickException(str(exc)) from exc
+    monitor = build_monitor(config, conn, router, queue)
     reasoning = build_reasoning(config, conn, router, memory, queue)
     consolidation = build_consolidation(config, conn, router, memory)
     notifier = build_notifications(config, dry_run=dry_run)
@@ -1135,6 +1167,22 @@ def run(ctx: click.Context, once: bool, dry_run: bool, interval: float) -> None:
                     click.echo(
                         f"{datetime.now():%H:%M:%S} ambient suggestions="
                         f"{','.join(str(item) for item in ambient_ids)}"
+                    )
+
+            try:
+                screen_ids = monitor.tick()
+            except Exception:
+                logger.exception("screen monitor failed")
+                screen_ids = ()
+            if screen_ids:
+                if once:
+                    click.echo(
+                        _line("screen", f"queued suggestions {list(screen_ids)}")
+                    )
+                else:
+                    click.echo(
+                        f"{datetime.now():%H:%M:%S} screen suggestions="
+                        f"{','.join(str(item) for item in screen_ids)}"
                     )
 
             now = time.monotonic()

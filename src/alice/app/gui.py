@@ -25,6 +25,7 @@ from ..memory.seed import ensure_seed_files
 from ..memory.service import MemoryService
 from ..models.budget import BudgetGuard, clear_pause, set_pause
 from ..outputs.digest import DigestWriter
+from ..outputs.inbox import NotificationCenter, NotificationRow
 from ..outputs.notify import NullNotifier
 from ..outputs.queue import SuggestionQueue
 from .dashboard import Dashboard, load_dashboard
@@ -70,6 +71,10 @@ class AliceWindow:
         self._fix_queue: queue.Queue = queue.Queue()
         self._fix_pending = False
         self._fix_poll_id: str | None = None
+        self._ping_baseline_ready = False
+        self._last_ping_id = 0
+        self._active_ping_id: int | None = None
+        self._ping_rows: dict[int, NotificationRow] = {}
 
         self.root.title("Alice · AI Secretary")
         self.root.minsize(1040, 660)
@@ -238,6 +243,7 @@ class AliceWindow:
         self._build_dashboard_tab()
         self._build_events_tab()
         self._build_suggestions_tab()
+        self._build_pings_tab()
         self._build_chat_tab()
         self._build_memory_tab()
         self._build_growth_tab()
@@ -246,6 +252,7 @@ class AliceWindow:
         self._build_tools_tab()
         self._build_system_tab()
         self._build_footer(main)
+        self._build_ping_banner()
         self._show_page("dashboard")
 
     def _build_sidebar(self, parent: tk.Frame) -> None:
@@ -310,6 +317,7 @@ class AliceWindow:
             ("dashboard", "◉   Dashboard"),
             ("events", "▤   Events"),
             ("suggestions", "✦   Suggestions"),
+            ("pings", "◔   Pings"),
         ):
             nav_button(name, label)
         section("ASSISTANT")
@@ -407,6 +415,13 @@ class AliceWindow:
         ttk.Button(
             right, text="Refresh", style="Ghost.TButton", command=self.refresh
         ).pack(side="right")
+        self.ping_button_var = tk.StringVar(value="Pings")
+        ttk.Button(
+            right,
+            textvariable=self.ping_button_var,
+            style="Ghost.TButton",
+            command=lambda: self._show_page("pings"),
+        ).pack(side="right", padx=(0, 8))
 
     def _build_cards(self, parent: tk.Frame) -> None:
         cards = tk.Frame(parent, bg=BG)
@@ -660,6 +675,85 @@ class AliceWindow:
             buttons, text="Save answer", style="Ghost.TButton",
             command=self._save_chat_as_suggestion
         ).pack(side="right")
+
+    def _build_pings_tab(self) -> None:
+        tab = self._page(
+            "pings",
+            "Pings",
+            "In-app suggestions. No Windows toasts; the bell and badge are local.",
+        )
+        row = ttk.Frame(tab)
+        row.pack(fill="x", pady=(0, 6))
+        self.ping_note = tk.StringVar(value="")
+        ttk.Label(row, textvariable=self.ping_note, style="Sub.TLabel").pack(
+            side="left"
+        )
+        ttk.Button(
+            row,
+            text="Mark all read",
+            style="Ghost.TButton",
+            command=self._mark_all_pings_read,
+        ).pack(side="right")
+        ttk.Button(
+            row,
+            text="Open selected suggestion",
+            style="Primary.TButton",
+            command=self._open_selected_ping,
+        ).pack(side="right", padx=6)
+        self.ping_tree = self._tree(
+            tab,
+            [
+                ("id", "ID", 45),
+                ("created", "Time", 150),
+                ("kind", "Kind", 100),
+                ("body", "Ping", 700),
+                ("read", "Read", 50),
+            ],
+        )
+        self.ping_tree.bind("<Double-1>", lambda _event: self._open_selected_ping())
+
+    def _build_ping_banner(self) -> None:
+        self.ping_title_var = tk.StringVar(value="New suggestion")
+        self.ping_body_var = tk.StringVar(value="")
+        self.ping_banner = tk.Frame(
+            self.root,
+            bg=CARD_BG,
+            highlightbackground=ACCENT,
+            highlightthickness=1,
+        )
+        tk.Frame(self.ping_banner, bg=ACCENT, height=3).pack(fill="x")
+        body = tk.Frame(self.ping_banner, bg=CARD_BG)
+        body.pack(fill="both", expand=True, padx=14, pady=10)
+        tk.Label(
+            body,
+            textvariable=self.ping_title_var,
+            bg=CARD_BG,
+            fg=ACCENT,
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            body,
+            textvariable=self.ping_body_var,
+            bg=CARD_BG,
+            fg=INK,
+            font=("Segoe UI", 9),
+            justify="left",
+            anchor="w",
+            wraplength=390,
+        ).pack(fill="x", pady=(4, 8))
+        buttons = tk.Frame(body, bg=CARD_BG)
+        buttons.pack(fill="x")
+        ttk.Button(
+            buttons, text="Open", style="Primary.TButton", command=self._open_active_ping
+        ).pack(side="left")
+        ttk.Button(
+            buttons,
+            text="Dismiss",
+            style="Ghost.TButton",
+            command=self._dismiss_active_ping,
+        ).pack(side="left", padx=6)
+        self.ping_banner.place_forget()
 
     def _build_chat_tab(self) -> None:
         tab = self._page(
@@ -1012,6 +1106,19 @@ class AliceWindow:
             pady=10,
             anchor="w",
         ).pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.ambient_monitor = tk.StringVar(value="Screen monitor: waiting for capture")
+        tk.Label(
+            tab,
+            textvariable=self.ambient_monitor,
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+            justify="left",
+            anchor="w",
+            wraplength=980,
+            padx=14,
+            pady=8,
+        ).pack(fill="x", pady=(0, 8))
         controls = ttk.Frame(tab)
         controls.pack(fill="x", pady=(0, 6))
         self.ambient_note = tk.StringVar(value="")
@@ -1220,6 +1327,7 @@ class AliceWindow:
         self._fill_growth(dashboard)
         self._fill_ambient(dashboard)
         self._fill_dashboard(dashboard)
+        self._refresh_pings()
         self._fill_tools(dashboard)
         self._fill_system(dashboard)
         self._set_digest(dashboard.digest_text)
@@ -1300,6 +1408,19 @@ class AliceWindow:
             if dashboard.next_event
             else "Next: no calendar events in the next day"
         )
+        monitor = dashboard.monitor_state or {}
+        if monitor:
+            excerpt = str(monitor.get("excerpt") or "").strip().replace("\n", " · ")
+            self.ambient_monitor.set(
+                f"Screen monitor: {monitor.get('status', 'unknown')} · "
+                f"captured {str(monitor.get('captured') or '-')[:19]} · "
+                f"analyzed {str(monitor.get('analyzed') or '-')[:19]}"
+                + (f"\n{excerpt[:280]}" if excerpt else "")
+            )
+        else:
+            self.ambient_monitor.set(
+                "Screen monitor: waiting for the first capture from alice run"
+            )
         self.ambient_note.set(
             f"{len(dashboard.ambient_alerts)} recent ambient alerts · "
             "quiet hours and the toast cap still apply"
@@ -1316,6 +1437,118 @@ class AliceWindow:
                     f"#{alert.suggestion_id}" if alert.suggestion_id else "-",
                 ),
             )
+
+    def _refresh_pings(self) -> None:
+        try:
+            center = NotificationCenter(self.conn)
+            unread = center.unread(limit=50)
+            recent = center.recent(limit=50)
+        except Exception:
+            logger.exception("could not refresh in-app pings")
+            return
+        self._ping_rows = {row.id: row for row in recent}
+        self._clear(self.ping_tree)
+        for row in recent:
+            self.ping_tree.insert(
+                "",
+                "end",
+                values=(
+                    row.id,
+                    row.created[:19].replace("T", " "),
+                    row.kind,
+                    row.body[:180],
+                    "yes" if row.read else "no",
+                ),
+            )
+        count = len(unread)
+        self.ping_button_var.set(f"Pings ({count})" if count else "Pings")
+        button = self.nav_buttons.get("pings")
+        if button is not None:
+            button.configure(text=f"◔   Pings ({count})" if count else "◔   Pings")
+        self.ping_note.set(
+            f"{count} unread · in-app only; the digest still records everything"
+        )
+        newest = max((row.id for row in unread), default=0)
+        if not self._ping_baseline_ready:
+            self._ping_baseline_ready = True
+            self._last_ping_id = newest
+            if unread:
+                self._show_ping(unread[0], beep=False)
+            return
+        if unread and newest > self._last_ping_id:
+            self._last_ping_id = newest
+            self._show_ping(unread[0], beep=True)
+        elif not unread:
+            self._hide_ping()
+
+    def _show_ping(self, row: NotificationRow, *, beep: bool) -> None:
+        self._active_ping_id = row.id
+        self.ping_title_var.set(row.title or "Suggestion")
+        self.ping_body_var.set(row.body)
+        self.ping_banner.place(
+            relx=1.0, x=-16, y=72, anchor="ne", width=430
+        )
+        self.ping_banner.lift()
+        if beep:
+            try:
+                import winsound
+
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
+
+    def _hide_ping(self) -> None:
+        self._active_ping_id = None
+        self.ping_banner.place_forget()
+
+    def _open_active_ping(self) -> None:
+        notification_id = self._active_ping_id
+        row = self._ping_rows.get(notification_id) if notification_id else None
+        if notification_id:
+            NotificationCenter(self.conn).mark_read(notification_id)
+        self._hide_ping()
+        self._show_page("suggestions")
+        if row and row.suggestion_id is not None:
+            self._select_suggestion(row.suggestion_id)
+        self.refresh()
+
+    def _dismiss_active_ping(self) -> None:
+        if self._active_ping_id:
+            NotificationCenter(self.conn).mark_read(self._active_ping_id)
+        self._hide_ping()
+        self.refresh()
+
+    def _mark_all_pings_read(self) -> None:
+        NotificationCenter(self.conn).mark_all_read()
+        self._hide_ping()
+        self.refresh()
+
+    def _open_selected_ping(self) -> None:
+        selection = self.ping_tree.selection()
+        if not selection:
+            messagebox.showinfo("Alice", "Select a ping first.")
+            return
+        notification_id = int(self.ping_tree.item(selection[0], "values")[0])
+        row = self._ping_rows.get(notification_id)
+        if row is None:
+            return
+        NotificationCenter(self.conn).mark_read(notification_id)
+        self.refresh()
+        if row.suggestion_id is None:
+            messagebox.showinfo("Alice", "This ping has no suggestion attached.")
+            return
+        self._show_page("suggestions")
+        self._select_suggestion(row.suggestion_id)
+
+    def _select_suggestion(self, suggestion_id: int) -> None:
+        for item in self.suggestion_tree.get_children():
+            values = self.suggestion_tree.item(item, "values")
+            if values and int(values[0]) == suggestion_id:
+                self.suggestion_tree.selection_set(item)
+                self.suggestion_tree.focus(item)
+                self.suggestion_tree.see(item)
+                self._show_suggestion_detail()
+                return
 
     def _fill_dashboard(self, dashboard: Dashboard) -> None:
         hardware = dashboard.hardware
@@ -1375,7 +1608,9 @@ class AliceWindow:
             f"{dashboard.growth_stats['sessions']} "
             f"session{'s' if dashboard.growth_stats['sessions'] != 1 else ''} · "
             f"top weight {dashboard.growth_stats['top_weight']:.2f}\n"
-            f"{now_line} · {next_line} · {exploration_line} · {email_line}"
+            f"{now_line} · {next_line} · "
+            f"screen {((dashboard.monitor_state or {}).get('status') or 'waiting')} · "
+            f"{exploration_line} · {email_line}"
         )
 
         self._clear(self.home_event_tree)

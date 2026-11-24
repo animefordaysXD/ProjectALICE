@@ -75,7 +75,7 @@ def test_dashboard_snapshot(conn) -> None:
 
     dashboard = load_dashboard(settings, connection)
 
-    assert dashboard.schema_version == 13
+    assert dashboard.schema_version == 14
     assert dashboard.status_counts["escalated"] == 1
     assert dashboard.new_above_gate == 0
     assert dashboard.queued_suggestions == 1
@@ -100,6 +100,7 @@ def test_dashboard_snapshot(conn) -> None:
     assert dashboard.growth_stats["sessions"] == 0
     assert dashboard.ambient_alerts[0].kind == "calendar"
     assert dashboard.activity is None or "category" in dashboard.activity
+    assert dashboard.monitor_state is None
 
 
 def test_gui_module_imports() -> None:

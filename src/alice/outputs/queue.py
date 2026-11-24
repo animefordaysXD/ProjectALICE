@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -11,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 from ..contracts.outputs import Notifier, Suggestion, SuggestionSink
 from ..core.db import utc_now
 from .config import Notify
+from .inbox import NotificationCenter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -69,8 +73,18 @@ class SuggestionQueue(SuggestionSink):
                 cluster,
             ),
         )
+        suggestion_id = int(cursor.lastrowid)
+        try:
+            NotificationCenter(self.conn).add(
+                kind=suggestion.category or "suggestion",
+                title=_notification_title(suggestion.category),
+                body=suggestion.text,
+                suggestion_id=suggestion_id,
+            )
+        except Exception:
+            logger.exception("could not add in-app notification")
         self.conn.commit()
-        return int(cursor.lastrowid)
+        return suggestion_id
 
     def merge_existing(self) -> int:
         """Merge active suggestions that share a cluster key."""
@@ -259,6 +273,19 @@ def is_quiet(moment: datetime, quiet_hours: str) -> bool:
 def _minutes(value: str) -> int:
     hour, minute = value.split(":", 1)
     return int(hour) * 60 + int(minute)
+
+
+def _notification_title(category: str | None) -> str:
+    return {
+        "calendar": "Calendar",
+        "wellbeing": "Ambient",
+        "monitor": "Screen",
+        "performance": "Performance",
+        "security": "Security",
+        "maintenance": "Maintenance",
+        "workflow": "Workflow",
+        "data": "Data",
+    }.get((category or "").casefold(), "Suggestion")
 
 
 def normalize_cluster(value: str | None) -> str | None:

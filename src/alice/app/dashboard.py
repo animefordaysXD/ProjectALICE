@@ -175,6 +175,7 @@ class Dashboard:
     activity: Mapping[str, Any] | None
     next_event: str | None
     ambient_alerts: tuple[AmbientAlertRow, ...]
+    monitor_state: Mapping[str, Any] | None
 
 
 def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard:
@@ -426,6 +427,7 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         event = calendar_events[0]
         next_event = f"{event.summary} at {event.start:%a %H:%M}"
 
+    monitor_state = _read_monitor_state(settings.data_dir)
     ambient_alerts: tuple[AmbientAlertRow, ...] = ()
     if _has_table(conn, "ambient_alerts"):
         ambient_alerts = tuple(
@@ -489,6 +491,7 @@ def load_dashboard(settings: AppSettings, conn: sqlite3.Connection) -> Dashboard
         activity=activity_data,
         next_event=next_event,
         ambient_alerts=ambient_alerts,
+        monitor_state=monitor_state,
     )
 
 
@@ -561,6 +564,17 @@ def _tools(settings: AppSettings, conn: sqlite3.Connection) -> tuple[ToolInfo, .
             )
         )
     return tuple(rows)
+
+
+def _read_monitor_state(data_dir: Path) -> Mapping[str, Any] | None:
+    path = data_dir / "monitor_state.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _exploration(data_dir: Path) -> Mapping[str, Any] | None:

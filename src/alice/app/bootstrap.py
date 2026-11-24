@@ -27,6 +27,7 @@ from ..models.budget import day_start
 from ..models.fake import FakeProvider
 from ..outputs import DigestWriter, SuggestionQueue, build_notifier
 from .ambient import AmbientMonitor
+from .monitor import ScreenMonitor
 from .settings import AppSettings
 from .tools import build_tools
 
@@ -258,6 +259,25 @@ def build_growth(
         conn,
         router,
         settings.growth,
+        sanitize=lambda text: redactor.redact(text).text,
+    )
+
+
+def build_monitor(
+    settings: AppSettings,
+    conn: sqlite3.Connection,
+    router: Router,
+    queue: SuggestionQueue,
+) -> ScreenMonitor:
+    redactor = Redactor(settings.inputs.redaction.patterns)
+    return ScreenMonitor(
+        conn,
+        router,
+        queue,
+        settings.monitor,
+        settings.data_dir,
+        calendar_file=settings.tools.calendar_file,
+        growth=build_growth(settings, conn, router),
         sanitize=lambda text: redactor.redact(text).text,
     )
 

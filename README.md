@@ -11,7 +11,7 @@ ledger, a tiered model router, three memory layers, triage, and a Windows
 executable. It is a **modular monolith**: one process and one SQLite database,
 with strict module boundaries and an import test.
 
-**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, and passive local calendar/activity monitoring with suggested pings. 377 tests pass.
+**Status:** Phase 1 complete. Phase 2 adds structured suggestions, local chat with read-only PC/web/calendar/email tools, read-only file attachments, clustering, a hardware/usage dashboard, autonomous Wikipedia exploration sessions, explicitly approved fix actions, a slow-weighted growth memory that learns from exploration sessions, passive local calendar/activity monitoring, local screen OCR with suggestion pings, and an in-app ping inbox. 385 tests pass.
 
 ---
 
@@ -87,13 +87,14 @@ Nightly work consolidates the day and then writes an encrypted local backup.
 | Embeddings | Local CPU multilingual embeddings (`potion-multilingual-128M`, 256d) |
 | Triage | Batched Tier 1, strict JSON decisions, one retry, ledger status updates, `--dry-run` |
 | Reasoning | Tier 2 for escalations, fast-memory task, recalled context, optional heavy refinement |
-| Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, toast cap, daily digest |
+| Output | Structured suggestions with steps, evidence, category, confidence; queue, quiet hours, in-app ping bell, daily digest |
 | Consolidation | Nightly hourly/daily summaries, memory proposals, raw-payload pruning |
 | GUI | Dark synthwave dashboard, events, suggestion actions, memory approvals, digest, local chat, tools/plugins view, live hardware and token usage, pause/resume, and explicitly approved fixes |
 | Chat | Budgeted Q&A with a tool loop over the ledger, memory, digest, files, time, system, web, calendar, and email |
 | Tools | Read-only `time.now`, `system.snapshot`, `activity.snapshot`, `file.read`, `file.list`, `web.fetch`, `calendar.upcoming`, `email.recent`; every call audited in `tool_calls` |
-| Ambient | Local foreground app/category/idle, calendar lookahead, focus and context-switch feedback, queued through normal suggestions and toasts |
-| Pings | Windows toast handoff, quiet hours, hourly cap, priority filter, mark-shown state, digest fallback |
+| Ambient | Local foreground app/category/idle, calendar lookahead, focus and context-switch feedback, queued through normal suggestions and in-app pings |
+| Screen | Opt-in local Windows OCR of the primary monitor; redacted excerpt only, in-memory screenshot, excluded password apps/titles |
+| Pings | In-app bell, unread badge, transient banner, optional system beep, read state, digest fallback |
 | Files | Read-only chat attachments and directory listing under configured roots, redacted and size-capped; no writes or automatic indexing |
 | Exploration | Six-hour-style autonomous read-only Wikipedia sessions with a step journal, JSONL trail, token accounting, and a final summary |
 | Growth | Summarized session reflections become weighted dispositions; slow EMA updates, time decay, and a token-capped prompt block beneath core memory |
@@ -122,7 +123,7 @@ contracts ← core ← inputs | memory | models | brain | outputs | plugins ← 
 - **memory** — core JSON, hard/fast/archive, embeddings, recall.
 - **models** — providers, tier routing, pricing, usage, budget, kill switch.
 - **brain** — prompt assembly, triage, reasoning, consolidation.
-- **outputs** — suggestion queue, digest, toasts.
+- **outputs** — suggestion queue, digest, in-app pings.
 - **plugins** — explicit registry, capability-scoped extensions.
 - **app** — CLI, settings composition, and wiring. The only module allowed to
   import every other module.
@@ -236,6 +237,7 @@ alice explore --minutes 360      Run a read-only exploration session
 alice growth list                Show learned dispositions and weights
 alice growth render              Show the prompt block Alice actually sees
 alice growth ingest --session DIR  Learn from an existing session
+alice monitor --capture          Test local screen OCR once
 ```
 
 Global options: `--config PATH` (or `ALICE_CONFIG`), `--data-dir PATH`,
@@ -353,9 +355,9 @@ files:
   max_files: 5
 
 notify:
-  mode: digest+toast
+  mode: digest
   quiet_hours: '22:00-08:00'
-  max_toasts_per_hour: 3
+  max_toasts_per_hour: 0
   min_toast_priority: 2
 
 retention:
@@ -460,17 +462,17 @@ suggestions.
 
 ### Delivery
 
-- The queue enforces quiet hours, a maximum number of toasts per hour, and
-  `notify.min_toast_priority`.
-- Quiet hours use local time and support overnight ranges.
-- A failed toast leaves the suggestion queued; it is never lost.
+- Windows toasts are disabled. Every new suggestion writes a row to
+  `notifications` and pings the GUI: bell count, unread badge, transient banner,
+  and a system beep.
+- The GUI's **Pings** page lists read and unread pings; **Mark all read** clears
+  the badge. Notification read state is independent of suggestion status.
 - Everything appears in a daily markdown digest at
-  `<data>/digests/YYYY-MM-DD.md`, with one summary toast on the first write of
-  the day.
+  `<data>/digests/YYYY-MM-DD.md`.
 - Budget refusals are recorded in `budget_alerts` and shown in the digest, so a
   blocked call is never silent.
-- Toast delivery uses `win11toast`; if it is unavailable, suggestions stay
-  queued and the digest still works.
+- If the GUI is closed, pings stay unread in the database and appear when it is
+  opened. There is no Windows toast fallback.
 
 ## Consolidation
 
@@ -513,8 +515,11 @@ fix actions you approve:
 - **Growth:** active learned dispositions with effective weights, evidence
   counts, last-seen times, and the sessions that fed them.
 - **Digest:** today's markdown; a button writes/updates it.
+- **Pings:** in-app notification list, unread badge, Mark all read, and Open
+  selected suggestion. No Windows toasts.
 - **Ambient:** current foreground app/category and idle time, the next calendar
-  event, recent ambient alerts, and a shortcut to the calendar folder.
+  event, screen-monitor status/excerpt, recent ambient alerts, and a shortcut to
+  the calendar folder.
 - **Tools & plugins:** tool readiness, the web allowlist, email/calendar status,
   registered plugins, and the recent tool-call audit.
 - **System & usage:** live CPU/memory/disk/uptime/process counters plus total
@@ -623,9 +628,9 @@ CLI remains available as `alice.exe`.
 - idle seconds since the last input;
 - upcoming events from the local `.ics` calendar.
 
-There are no keystrokes, screenshots, clipboard reads, browser history, or file
-contents. The title is only used locally and for the explicit `activity.snapshot`
-chat tool; it is redacted first and truncated.
+This layer does not capture the screen. The foreground title/process is used
+locally and for the explicit `activity.snapshot` chat tool; it is redacted first
+and truncated.
 
 Local rules turn only a few patterns into ordinary suggestions:
 
@@ -637,16 +642,54 @@ Local rules turn only a few patterns into ordinary suggestions:
 | Still active after 01:00 | P3 in-app suggestion | wind-down feedback |
 
 Ambient suggestions use the normal `suggestions` table, so they appear in the
-GUI, digest, and toast queue. Quiet hours, `notify.max_toasts_per_hour`, and
-`notify.min_toast_priority` all still apply. P3 suggestions normally stay in the
-GUI/digest instead of becoming toasts.
+GUI, digest, and in-app Pings page. Quiet hours and the notification read state
+still apply. P3 suggestions stay in the GUI/digest and do not beep.
 
 The **Ambient** page shows the current app/category, idle state, next calendar
-event, and recent ambient alerts. The Chat tab can use `activity.snapshot` to
-answer "what am I doing right now?" and `calendar.upcoming` for the next events.
+event, screen-monitor state, and recent ambient alerts. The Chat tab can use
+`activity.snapshot` to answer "what am I doing right now?" and
+`calendar.upcoming` for the next events.
 
 Foreground activity is Windows-only. Calendar monitoring needs a populated
 `calendar.ics`; an empty template is created by `alice init`.
+
+## Screen following
+
+`alice run` can also follow the primary monitor with local Windows OCR. This is
+opt-in through `monitor.enabled` and is deliberately narrow:
+
+1. Capture the primary screen into memory. No screenshot is written to disk.
+2. Run Windows OCR locally.
+3. Drop obvious credential lines and apply the normal redactor.
+4. Keep only a bounded excerpt.
+5. Every `monitor.analyze_seconds`, if the screen text changed, ask the `reason`
+   tier for zero or one practical suggestion.
+6. Put accepted suggestions through the normal queue, which creates an in-app
+   ping.
+
+The model receives the redacted text excerpt, foreground app/category, window
+title, next calendar event, and growth memory. It does not receive image files.
+Password managers and titles containing password/incognito/private-browsing
+hints are skipped. Window titles and screen text can still contain personal
+names or content the pattern redactor does not recognize; do not enable screen
+following on a shared or untrusted display.
+
+`monitor_state.json` under the data directory stores the latest status and a
+short local excerpt for the Ambient page. Screenshots are never stored.
+
+```yaml
+monitor:
+  enabled: true
+  capture_seconds: 20
+  analyze_seconds: 300
+  idle_seconds: 300
+  max_ocr_chars: 2500
+  min_confidence: 0.5
+  max_suggestions_per_hour: 2
+  exclude_apps: ['keepass.exe', 'keepassxc.exe', '1password.exe', 'bitwarden.exe', 'lastpass.exe', 'dashlane.exe']
+  exclude_titles: ['password', 'incognito', 'private browsing', 'inprivate']
+  excerpt_chars: 300
+```
 
 ## Exploration sessions
 
@@ -1167,7 +1210,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-377 tests cover:
+385 tests cover:
 
 - config validation, secret rejection, data-dir precedence, profiles, migration;
 - read-only tools, tool-call auditing, calendar creation, domain allowlisting;
@@ -1175,7 +1218,8 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - growth extraction, slow weight updates, evidence counts, decay, rendering,
   session ingestion, and chat prompt inclusion;
 - calendar parsing, ambient dedupe/rate limits, focus and context-switch
-  feedback, idle suppression, and non-blocking toast handoff;
+  feedback, idle suppression, screen OCR gating, credential-line scrubbing,
+  in-app notification creation/read state, and monitor suggestion validation;
 - database migrations, WAL, FTS sync, table safety;
 - log rotation, partial lines, truncation, encoding errors, cursor recovery;
 - whole-drive discovery: globs, exclusions, caps, depth, age, binary rejection,
@@ -1185,7 +1229,7 @@ screen, `Data folder.cmd` to open `%LOCALAPPDATA%\Alice`, and
 - timed-session handover report: usage, triage, suggestions, logs, integrity;
 - stress harness: synthetic rotation/truncation/flood/PII logs, metrics,
   deliberate process kills, concurrent report/backup;
-- toast timeout and run heartbeat watchdog, so a blocked notification cannot
+- in-app notification read state, screen-OCR gating, and run heartbeat watchdog, so a blocked notification cannot
   freeze the loop for a whole session;
 - a simulated crash between ledger commit and cursor advance;
 - redaction of Korean and English fixtures;
@@ -1248,7 +1292,7 @@ alice/
     memory/                core JSON, hard/fast/archive, embeddings, recall
     models/                providers, router, budget, usage
     brain/                 prompts, triage, reasoning, consolidation
-    outputs/               suggestion queue, digest, report, toasts
+    outputs/               suggestion queue, digest, report, in-app pings
     plugins/               explicit registry and capability policy
     app/                   CLI, settings, GUI, composition root
   tests/                   offline tests and fixtures
@@ -1309,12 +1353,10 @@ milestone in the original spec.
   memory service.
 - `memory/seed/*.md` remain as templates; the active core memory is
   `memory/core.json`.
-- Toast delivery depends on `win11toast` and Windows notifications being
-  enabled. Delivery runs with a 5-second timeout and a 10-minute cooldown after
-  a failure; failures leave suggestions queued for the digest. The supervisor
-  also restarts Alice if its run heartbeat goes stale for 10 minutes.
-- The digest is regenerated on each poll; the summary toast is sent only on the
-  first write of the local day, and not during quiet hours.
+- In-app pings depend on the GUI being open; unread pings wait in SQLite when it
+  is closed. The supervisor also restarts Alice if its run heartbeat goes stale
+  for 10 minutes.
+- The digest is regenerated on each poll. There is no Windows summary toast.
 - The heavy tier is capped per day and only used when reasoning sets
   `needs_heavy`; no automatic escalation to heavy exists yet.
 - The GUI is a local dashboard. It does not run sensors or reasoning in the
@@ -1339,13 +1381,20 @@ milestone in the original spec.
   time. It cannot see inside applications, and it is Windows-only. Window titles
   can still contain sensitive names; they are redacted and kept local, but do not
   enable it on a shared screen if that matters.
-- Toast delivery depends on the Windows notification service and the signed-in
-  desktop session. The notifier hands off to Windows instead of waiting for the
-  toast to be dismissed; failures fall back to the GUI and digest.
+- In-app pings only exist while the GUI is open. If it is closed, unread pings
+  wait in `notifications` and appear on the next launch; there is no Windows
+  toast fallback.
 - Calendar alerts require a populated `.ics` file; Alice does not create events
   or sync Google/Naver calendars by itself.
-- Ambient suggestions are deterministic rules, not a model analysis. Use chat
-  with `activity.snapshot`/`calendar.upcoming` for a richer explanation.
+- Ambient suggestions are deterministic rules. Screen-following suggestions are
+  model-generated from OCR text and can be wrong or obvious; use the Pings page
+  and dismiss what is not useful.
+- Screen OCR is Windows-only and captures the primary monitor. It is not a
+  vision model: it sees text, not layout or images. Some apps render text in
+  ways Windows OCR cannot read.
+- Redaction is pattern-based. Screen text can contain names or secrets the
+  redactor does not recognize. Enable screen following only if you accept that
+  the redacted excerpt is sent to your configured model.
 - If a detached session process is killed before it writes `summary.md`, run
   `alice growth ingest --session <dir>` after recovering or writing a summary.
 - Fix actions are model-drafted. The command may be wrong; approve only what you
@@ -1367,7 +1416,8 @@ milestone in the original spec.
 - `from_start: false` means a freshly started Alice does not replay old logs;
   it watches for new lines. Use `true` for a deliberate backfill.
 - The logon task is installed for the current user and needs that user's
-  Windows session for toasts. A service would need a separate notification path.
+  Windows session for foreground activity, screen OCR, and the GUI pings. A
+  service would need a separate observation/ping path.
 - `alice startup --install` requires the packaged build; source checkouts use
   the PowerShell scripts directly.
 
