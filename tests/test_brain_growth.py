@@ -42,7 +42,7 @@ def service(conn, router=None, **kwargs) -> GrowthService:
         max_weight=0.8,
         daily_decay=0.995,
         influence_alpha=0.25,
-        render_max_tokens=300,
+        render_max_tokens=450,
         min_weight=0.03,
     )
     return GrowthService(conn, router, config, **kwargs)
@@ -117,6 +117,7 @@ def test_render_is_subordinate_and_weighted(conn) -> None:
     assert "history-of-clocks" not in text.lower()
     assert "history of timekeeping" in text
     assert "(0." in text
+    assert "Recent sessions (newest first):" in text
 
 
 def test_fallback_uses_titles_without_router(conn) -> None:

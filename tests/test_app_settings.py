@@ -66,6 +66,7 @@ def test_repo_config_loads() -> None:
     assert config.growth.enabled is True
     assert config.growth.max_weight == 0.80
     assert config.growth.daily_decay == 0.995
+    assert config.growth.render_max_tokens == 450
     assert "winget" in config.core.actions.allowed_programs
     assert config.core.actions.timeout_seconds == 120
 

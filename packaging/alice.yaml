@@ -108,7 +108,7 @@ growth:
   max_weight: 0.80
   daily_decay: 0.995
   influence_alpha: 0.25
-  render_max_tokens: 300
+  render_max_tokens: 450
   min_weight: 0.03
 
 actions:
