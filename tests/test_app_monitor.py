@@ -281,6 +281,21 @@ def test_accessibility_context_is_added_to_the_prompt(conn) -> None:
     assert "Likely scenario" in prompt
 
 
+def test_screen_observation_gets_a_fallback_growth_note(conn) -> None:
+    router = StubRouter(
+        {
+            "suggestions": [],
+            "observation": "A code editor is open with a failing test.",
+        }
+    )
+    growth = StubGrowth()
+    service = monitor(conn, router, growth=growth)
+    service.tick(datetime(2026, 11, 24, 14, 0).astimezone())
+    assert growth.observation is not None
+    assert growth.observation["notes"]
+    assert growth.observation["notes"][0]["key"] == "observes-coding"
+
+
 def test_scenario_hints() -> None:
     assert detect_scenario("other", "Traceback: ValueError: bad input") == "error"
     assert detect_scenario("coding", "def main(): pass") == "coding"

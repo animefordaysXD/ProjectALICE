@@ -317,6 +317,18 @@ class ScreenMonitor:
             < timedelta(seconds=self.config.memory_seconds)
         ):
             return
+        if not notes and current.category not in ("other", "idle", ""):
+            notes = [
+                {
+                    "key": f"observes-{current.category}",
+                    "kind": "habit",
+                    "text": (
+                        "I tend to look for one useful next step when observing "
+                        f"{current.category} work."
+                    ),
+                    "confidence": 0.3,
+                }
+            ]
         try:
             self.growth.ingest_observation(
                 summary=observation,
